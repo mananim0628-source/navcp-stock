@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
-import TradingViewChart from '@/components/TradingViewChart'
+import CandleChart from '@/components/CandleChart'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,10 +100,10 @@ export default async function StockDetail({ params }: { params: { symbol: string
           {sc.supply_dir && <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>수급: 20일 중 {sc.supply_days}일 순매수 · 방향 {String(sc.supply_dir)}</div>}
         </div>
 
-        {/* 트레이딩뷰 차트 */}
+        {/* 캔들차트 (KIS 일봉 · 이평·지지/저항) */}
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>📈 차트 <span style={{ fontSize: 12, color: T.muted, fontWeight: 400 }}>· 트레이딩뷰 (RSI·이평 기본 표시, 지표 추가 가능)</span></div>
-          <TradingViewChart code={r.symbol} />
+          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>📈 차트 <span style={{ fontSize: 12, color: T.muted, fontWeight: 400 }}>· 일봉 + 20/60일선 + 지지/저항</span></div>
+          <CandleChart candles={(sc.candles as unknown as [string, number, number, number, number][]) || []} support={support} resistance={resistance} />
         </div>
 
         <p style={{ fontSize: 12, color: T.muted, marginTop: 22, lineHeight: 1.7, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14 }}>

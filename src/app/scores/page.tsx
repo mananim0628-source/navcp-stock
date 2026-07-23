@@ -1,20 +1,18 @@
 import Link from 'next/link'
 import { supabase, type StockScore } from '@/lib/supabase'
-import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
+import { T, bgGradient } from '@/lib/theme'
+import ScoresList from '@/components/ScoresList'
 
-export const dynamic = 'force-dynamic' // 요청시 렌더(빌드때 env 없어도 안전 · 항상 최신)
+export const dynamic = 'force-dynamic'
 
-// 종목 점수판 — stock_score_cache 읽어 등급별 렌더. "내 분석 화면 공개" 프레임.
-// 커버리지 낮은 종목은 경고 표기(뻥튀기 방지, 크립토 교훈). 매수 권유 아님.
+// 종목 점수판 — 등급 필터 바 + 리스트. "내 분석 화면 공개" 프레임. 매수 권유 아님.
 export default async function ScoresPage() {
   const { data } = await supabase
     .from('stock_score_cache')
     .select('symbol,name,market,scores,coverage,cached_at')
     .order('scores->total', { ascending: false })
-    .limit(60)
-
+    .limit(300)
   const rows = (data || []) as StockScore[]
-  const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0)
 
   return (
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
@@ -31,43 +29,7 @@ export default async function ScoresPage() {
           제가 시장을 읽는 화면을 그대로 공개합니다. 점수가 높다고 매수 신호가 아니며, <b style={{ color: T.text }}>커버리지(측정 충실도)</b>를 함께 보세요.
         </p>
 
-        {rows.length === 0 ? (
-          <div style={{ ...cardStyle, borderRadius: 14, padding: 28, marginTop: 22, textAlign: 'center', color: T.muted }}>
-            아직 점수 데이터가 없어요. 스코어링 엔진이 종목을 채우는 중입니다.
-          </div>
-        ) : (
-          <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-            {rows.map(r => {
-              const total = Math.round(num(r.scores?.total))
-              const cov = r.coverage != null ? Math.round(Number(r.coverage) * 100) : null
-              const low = cov != null && cov < 85
-              const col = gradeColor(total)
-              const price = r.scores?.price != null ? Number(r.scores.price).toLocaleString('ko-KR') + '원' : null
-              const chg = r.scores?.chg != null ? Number(r.scores.chg) : null
-              return (
-                <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ ...cardStyle, borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 14, textDecoration: 'none', color: T.text }} className="hover:scale-[1.01] transition-transform">
-                  <div style={{ width: 46, height: 46, borderRadius: '50%', border: `3px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, color: col, flexShrink: 0 }}>
-                    {total}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{r.name || r.symbol} <span style={{ color: T.muted, fontSize: 12 }}>{r.symbol} · {r.market}</span></div>
-                    <div style={{ fontSize: 12, marginTop: 2 }}>
-                      <span style={{ color: col, fontWeight: 700 }}>{gradeLabel(total)}</span>
-                      {cov != null && <span style={{ color: low ? T.red : T.muted, marginLeft: 8 }}>커버리지 {cov}%{low ? ' ⚠️' : ''}</span>}
-                    </div>
-                  </div>
-                  {price && (
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{price}</div>
-                      {chg != null && <div style={{ fontSize: 12, fontWeight: 700, color: chg > 0 ? T.green : chg < 0 ? T.red : T.muted }}>{chg > 0 ? '▲' : chg < 0 ? '▼' : ''}{Math.abs(chg)}%</div>}
-                    </div>
-                  )}
-                  <span style={{ color: T.muted, fontSize: 18, flexShrink: 0 }}>›</span>
-                </Link>
-              )
-            })}
-          </div>
-        )}
+        <ScoresList rows={rows} />
 
         <p style={{ fontSize: 12, color: T.muted, marginTop: 28, lineHeight: 1.7, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14 }}>
           ⚠️ 정보 제공·분석·교육 목적. 특정 종목 매수·매도 권유가 아니며 투자 판단과 책임은 본인 몫입니다.

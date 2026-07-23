@@ -85,9 +85,34 @@ async function daily(code, tok) {
   if (!o2) return null
   // 최신순 → 오래된순, 미완성(거래량 0) 당일 제외
   const rows = o2.filter(r => Number(r.acml_vol) > 0).map(r => ({
-    c: Number(r.stck_clpr), h: Number(r.stck_hgpr), l: Number(r.stck_lwpr), v: Number(r.acml_vol),
+    d: r.stck_bsop_date, o: Number(r.stck_oprc), c: Number(r.stck_clpr), h: Number(r.stck_hgpr), l: Number(r.stck_lwpr), v: Number(r.acml_vol),
   })).filter(r => isFinite(r.c) && r.c > 0).reverse()
   return rows.length >= 20 ? rows : null
+}
+
+// 재무비율(장 무관·안정) — 성장률·ROE·부채·EPS·BPS. 재무 팩터(20)의 정식 소스.
+async function financialRatio(code, tok) {
+  const j = await kisGet(`/uapi/domestic-stock/v1/finance/financial-ratio?FID_DIV_CLS_CODE=0&fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`, tok, 'FHKST66430300')
+  const o = j && Array.isArray(j.output) ? j.output[0] : null
+  if (!o) return null
+  return { grs: Number(o.grs), opInc: Number(o.bsop_prfi_inrt), roe: Number(o.roe_val), eps: Number(o.eps), bps: Number(o.bps), debt: Number(o.lblt_rate) }
+}
+function computeFinancial(fr, price) {
+  if (!fr) return null
+  let s = 0
+  const band = (v, a, b, c) => (v >= a ? 5 : v >= b ? 4 : v >= c ? 3 : v > 0 ? 2 : 1)
+  s += Number.isFinite(fr.grs) ? band(fr.grs, 20, 10, 0) : 2         // 매출성장 5
+  s += Number.isFinite(fr.opInc) ? Math.min(4, band(fr.opInc, 20, 10, 0)) : 2  // 영업이익성장 4
+  s += Number.isFinite(fr.roe) ? (fr.roe >= 15 ? 4 : fr.roe >= 10 ? 3 : fr.roe >= 5 ? 2 : 1) : 2  // ROE 4
+  s += Number.isFinite(fr.debt) ? (fr.debt < 100 ? 3 : fr.debt < 200 ? 2 : 1) : 1  // 부채안정 3
+  // 밸류(PER/PBR = 현재가/EPS, 현재가/BPS) 4
+  const per = (Number.isFinite(fr.eps) && fr.eps > 0 && price) ? price / fr.eps : null
+  const pbr = (Number.isFinite(fr.bps) && fr.bps > 0 && price) ? price / fr.bps : null
+  let val = 0
+  if (per != null) val += per < 10 ? 2 : per < 20 ? 1.5 : per < 40 ? 1 : 0.5
+  if (pbr != null) val += pbr < 1 ? 2 : pbr < 2 ? 1.5 : pbr < 4 ? 1 : 0.5
+  s += Math.round(val)
+  return { score: Math.max(0, Math.min(20, Math.round(s))), per: per ? +per.toFixed(1) : null, pbr: pbr ? +pbr.toFixed(2) : null, roe: fr.roe, grs: fr.grs }
 }
 
 function rsi14(closes) {
@@ -118,11 +143,13 @@ function computeTechAndLevels(rows) {
   s += pos < 0.4 ? 5 : pos < 0.7 ? 4 : pos < 0.9 ? 2 : 1
   const vMa5 = ma(rows.map(r => r.v), 5), vMa20 = ma(rows.map(r => r.v), 20)
   if (vMa5 && vMa20) s += vMa5 > vMa20 * 1.2 ? 4 : vMa5 > vMa20 ? 3 : 1
+  // 차트용 캔들 시리즈(최근 60개, 컴팩트 [날짜,시,고,저,종])
+  const candles = rows.slice(-60).map(r => [r.d, r.o, r.h, r.l, r.c])
   return {
     technical: Math.max(0, Math.min(20, Math.round(s))),
     rsi, ma5: m5 ? Math.round(m5) : null, ma20: m20 ? Math.round(m20) : null, ma60: m60 ? Math.round(m60) : null,
     support: Math.round(swingLow), resistance: Math.round(swingHigh),
-    w52_high: Math.round(hi52), w52_low: Math.round(lo52), last,
+    w52_high: Math.round(hi52), w52_low: Math.round(lo52), last, candles,
   }
 }
 
@@ -147,9 +174,8 @@ function computeSupply(rows) {
 
 // ── 팩터 산출 (v0 근사, 0~배점) ──
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-function scoreStock(o, supplyInfo, techInfo) {
+function scoreStock(o, supplyInfo, techInfo, finInfo) {
   const price = +o.stck_prpr, chg = +o.prdy_ctrt
-  const per = +o.per, pbr = +o.pbr
   const na = []
 
   // 기술(20): 일봉 기반(RSI·이평 정배열·위치·거래량). 일봉 없으면 측정 안 됨.
@@ -162,13 +188,10 @@ function scoreStock(o, supplyInfo, techInfo) {
   if (supplyInfo && supplyInfo.score != null) supply = supplyInfo.score
   else na.push('수급')
 
-  // 밸류→재무(20 중 밸류 파트만, v0): PER/PBR 낮을수록 가점
+  // 재무(20): 재무비율 API 기반(성장률·ROE·부채·밸류). 장 무관·안정.
   let financial = null
-  if (isFinite(per) && per > 0 && isFinite(pbr) && pbr > 0) {
-    const perScore = per < 10 ? 10 : per < 20 ? 7 : per < 40 ? 4 : 2
-    const pbrScore = pbr < 1 ? 10 : pbr < 2 ? 7 : pbr < 4 ? 4 : 2
-    financial = perScore + pbrScore
-  } else na.push('재무')
+  if (finInfo && finInfo.score != null) financial = finInfo.score
+  else na.push('재무')
 
   // 미측정 팩터(거시12·AI15·파생15·전략5) → 측정 안 됨
   na.push('거시', 'AI', '파생', '전략')
@@ -184,13 +207,14 @@ function scoreStock(o, supplyInfo, techInfo) {
   return {
     scores: {
       total, technical, supply, financial, coverage,
-      per: isFinite(per) ? per : null, pbr: isFinite(pbr) ? pbr : null,
+      per: finInfo?.per ?? null, pbr: finInfo?.pbr ?? null, roe: finInfo?.roe ?? null, grs: finInfo?.grs ?? null,
       price: isFinite(price) ? price : null, chg,
       // 기술 상세 + 지지/저항 (상세페이지용)
       rsi: techInfo?.rsi ?? null, ma5: techInfo?.ma5 ?? null, ma20: techInfo?.ma20 ?? null, ma60: techInfo?.ma60 ?? null,
       support: techInfo?.support ?? null, resistance: techInfo?.resistance ?? null,
       w52_high: techInfo?.w52_high ?? null, w52_low: techInfo?.w52_low ?? null,
       supply_dir: supplyInfo?.netDir ?? null, supply_days: supplyInfo ? `${supplyInfo.posDays}/${supplyInfo.days}` : null,
+      candles: techInfo?.candles ?? null,   // 차트용 일봉 [날짜,시,고,저,종]
       naFactors: na,
     },
     coverage,
@@ -221,7 +245,9 @@ async function upsert(row) {
       const supplyInfo = computeSupply(inv)
       await sleep(250)
       const techInfo = computeTechAndLevels(await daily(s.code, tok))
-      const { scores, coverage } = scoreStock(o, supplyInfo, techInfo)
+      await sleep(250)
+      const finInfo = computeFinancial(await financialRatio(s.code, tok), Number(o.stck_prpr))
+      const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo)
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'
       console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · ${sd} · PER ${scores.per} · PBR ${scores.pbr}`)
