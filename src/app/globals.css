@@ -1,0 +1,10 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { max-width: 100%; overflow-x: hidden; }
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #E8ECF6;
+  background: #080c18;
+}
+a { color: inherit; }
+button { font-family: inherit; }
