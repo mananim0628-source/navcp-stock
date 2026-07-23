@@ -331,9 +331,13 @@ async function upsert(row) {
   if (!r.ok) throw new Error('upsert ' + r.status + ' ' + (await r.text()).slice(0, 100))
 }
 
+const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '중립' : t >= 48 ? '주의' : '경계'
+
 ;(async () => {
   const tok = await getToken()
   const now = new Date().toISOString()
+  const today = now.slice(0, 10)
+  const history = []   // 백테스트용 일별 스냅샷
   const macroScore = await computeMacro()   // 시장 공통 1회
   const UNIVERSE = await fetchUniverse(tok)
   console.log(`유니버스 ${UNIVERSE.length}종목 · 거시점수 ${macroScore ?? 'n/a'}\n`)
@@ -354,6 +358,7 @@ async function upsert(row) {
       const aiInfo = await dartAI(s.code)
       const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiInfo)
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
+      history.push({ d: today, symbol: s.code, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price: scores.price, snapshot_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'
       console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · ${sd} · PER ${scores.per} · PBR ${scores.pbr}`)
       ok++
@@ -366,5 +371,16 @@ async function upsert(row) {
       method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
     })
   } catch (e) {}
+  // 일별 스냅샷 적재(백테스트 이력) — (d,symbol) 유니크, 하루 중 재실행 시 갱신
+  if (history.length) {
+    try {
+      const r = await fetch(`${SUPA_URL}/rest/v1/stock_score_history?on_conflict=d,symbol`, {
+        method: 'POST',
+        headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(history),
+      })
+      console.log(`이력 스냅샷 ${history.length}건 적재 (${r.ok ? 'ok' : 'fail ' + r.status})`)
+    } catch (e) { console.log('이력 적재 err', String(e.message).slice(0, 60)) }
+  }
   console.log(`\n완료: ${ok}/${UNIVERSE.length} 종목 적재 (stale 정리)`)
 })()

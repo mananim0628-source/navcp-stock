@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
+import CommunityChat from '@/components/CommunityChat'
 
 export const dynamic = 'force-dynamic'
 
@@ -111,7 +112,8 @@ export default async function Home() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 960, margin: '0 auto', padding: '24px 20px 60px' }}>
+      <div className="shell">
+       <main className="shell-main">
         {/* 시장 국면 배너 */}
         <div style={{ ...cardStyle, borderRadius: 16, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16, borderLeft: `4px solid ${regime.col}` }}>
           <div style={{ flexShrink: 0 }}>
@@ -283,7 +285,11 @@ export default async function Home() {
           ⚠️ 정보 제공·분석·교육 목적입니다. 특정 종목의 매수·매도 권유가 아니며, 투자 판단과 책임은 본인에게 있습니다.
           운영자는 제도권 금융기관·투자자문업자가 아니며, 대가를 받는 투자자문·리딩·투자일임을 제공하지 않습니다.
         </p>
-      </main>
+       </main>
+       <aside className="chat-rail">
+         <CommunityChat />
+       </aside>
+      </div>
     </div>
   )
 }
