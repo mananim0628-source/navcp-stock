@@ -17,15 +17,23 @@ const BANDS: { key: string; label: string; test: (t: number) => boolean }[] = [
 
 export default function ScoresList({ rows }: { rows: StockScore[] }) {
   const [band, setBand] = useState('all')
+  const [q, setQ] = useState('')
   const num = (v: unknown) => (v == null ? 0 : Number(v))
   const active = BANDS.find(b => b.key === band)!
-  const filtered = rows.filter(r => active.test(Math.round(num(r.scores?.total))))
+  const query = q.trim().toLowerCase()
+  const filtered = rows
+    .filter(r => active.test(Math.round(num(r.scores?.total))))
+    .filter(r => !query || (r.name || '').toLowerCase().includes(query) || (r.symbol || '').includes(query))
   const count = (b: typeof BANDS[number]) => rows.filter(r => b.test(Math.round(num(r.scores?.total)))).length
 
   return (
     <>
+      {/* 검색 */}
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="종목명 · 코드 검색"
+        style={{ width: '100%', marginTop: 18, padding: '11px 14px', borderRadius: 12, fontSize: 14,
+          background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.cardBr}`, color: T.text, outline: 'none' }} />
       {/* 필터 바 */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
         {BANDS.map(b => {
           const on = band === b.key
           const c = b.key === 's' || b.key === 'f' ? T.green : b.key === 'n' || b.key === 'c' ? T.amber : b.key === 'w' ? T.red : T.teal

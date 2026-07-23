@@ -50,6 +50,26 @@ export default async function Home() {
   const gainers = [...moved].sort((a, b) => num(b.scores?.chg) - num(a.scores?.chg)).slice(0, 5)
   const losers = [...moved].sort((a, b) => num(a.scores?.chg) - num(b.scores?.chg)).slice(0, 5)
 
+  // 52주 신고가 근접 (현재가가 52주 고가의 97% 이상)
+  const nearHigh = rows.filter(r => {
+    const p = num(r.scores?.price), hi = num((r.scores as any)?.w52_high)
+    return p > 0 && hi > 0 && p >= hi * 0.97
+  }).sort((a, b) => num(b.scores?.total) - num(a.scores?.total)).slice(0, 6)
+
+  // 업종(섹터) 흐름 — 업종별 평균 등락률·평균점수 집계
+  const secMap = new Map<string, { chg: number[]; tot: number[] }>()
+  for (const r of rows) {
+    const sec = (r.scores as any)?.sector
+    if (!sec || r.scores?.chg == null) continue
+    if (!secMap.has(sec)) secMap.set(sec, { chg: [], tot: [] })
+    const g = secMap.get(sec)!
+    g.chg.push(num(r.scores.chg)); g.tot.push(num(r.scores?.total))
+  }
+  const sectors = [...secMap.entries()]
+    .filter(([, g]) => g.chg.length >= 2)
+    .map(([name, g]) => ({ name, chg: +mean(g.chg).toFixed(2), tot: Math.round(mean(g.tot)), n: g.chg.length }))
+    .sort((a, b) => b.chg - a.chg).slice(0, 8)
+
   // 데이터 갱신 시각 ("N분 전")
   const latest = (rows[0] as any)?.cached_at as string | undefined
   let freshTxt = ''
@@ -85,6 +105,7 @@ export default async function Home() {
           <nav style={{ display: 'flex', gap: 18, fontSize: 14, alignItems: 'center' }}>
             {freshTxt && <span style={{ fontSize: 11, color: T.muted }}>🕐 {freshTxt}</span>}
             <Link href="/scores" style={{ color: T.teal, fontWeight: 700 }}>종목 점수</Link>
+            <Link href="/method" style={{ color: T.muted }}>방법론</Link>
             <a href="https://navcp.xyz" style={{ color: T.muted }}>크립토 →</a>
           </nav>
         </div>
@@ -113,6 +134,26 @@ export default async function Home() {
           <IdxBox label="VIX(공포)" d={vix} />
           <IdxBox label="원/달러" d={usdkrw} />
         </div>
+
+        {/* 업종 흐름 히트맵 */}
+        {sectors.length > 0 && (
+          <>
+            <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 26, marginBottom: 8 }}>업종 흐름 (오늘)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8 }}>
+              {sectors.map(s => {
+                const on = Math.min(1, Math.abs(s.chg) / 3)
+                const bg = s.chg >= 0 ? `rgba(40,199,111,${0.12 + on * 0.4})` : `rgba(240,101,74,${0.12 + on * 0.4})`
+                return (
+                  <div key={s.name} style={{ borderRadius: 10, padding: '10px 12px', background: bg, border: `1px solid ${T.cardBr}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: s.chg >= 0 ? T.green : T.red, marginTop: 2 }}>{s.chg > 0 ? '+' : ''}{s.chg}%</div>
+                    <div style={{ fontSize: 10, color: T.muted }}>{s.n}종목 · 평균 {s.tot}점</div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
 
         {/* 오늘의 호재 / 악재 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14, marginTop: 28 }}>
@@ -186,6 +227,28 @@ export default async function Home() {
             )
           })}
         </div>
+
+        {/* 52주 신고가 근접 */}
+        {nearHigh.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginTop: 30 }}>🚀 52주 신고가 근접</h2>
+            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+              {nearHigh.map(r => {
+                const total = Math.round(num(r.scores?.total))
+                const p = num(r.scores?.price), hi = num((r.scores as any)?.w52_high)
+                const pct = hi > 0 ? Math.round((p / hi) * 100) : 0
+                return (
+                  <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ ...cardStyle, borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: T.text }}>
+                    <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{r.name || r.symbol}</span>
+                    <span style={{ fontSize: 12, color: T.teal, fontWeight: 700 }}>고점의 {pct}%</span>
+                    <span style={{ fontSize: 12, color: gradeColor(total), fontWeight: 700 }}>{total}점</span>
+                    <span style={{ color: T.muted, fontSize: 16 }}>›</span>
+                  </Link>
+                )
+              })}
+            </div>
+          </>
+        )}
 
         {/* 기관·외국인 순매수 상위 */}
         {flow.length > 0 && (

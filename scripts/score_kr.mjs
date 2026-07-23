@@ -309,6 +309,7 @@ function scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiI
       per: finInfo?.per ?? null, pbr: finInfo?.pbr ?? null, roe: finInfo?.roe ?? null, grs: finInfo?.grs ?? null,
       short_ratio: derivInfo?.avg ?? null,
       price: isFinite(price) ? price : null, chg,
+      sector: o.bstp_kor_isnm || null,   // 업종명(섹터 흐름 집계용)
       // 기술 상세 + 지지/저항 (상세페이지용)
       rsi: techInfo?.rsi ?? null, ma5: techInfo?.ma5 ?? null, ma20: techInfo?.ma20 ?? null, ma60: techInfo?.ma60 ?? null,
       support: techInfo?.support ?? null, resistance: techInfo?.resistance ?? null,
