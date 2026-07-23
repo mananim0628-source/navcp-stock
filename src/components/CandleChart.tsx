@@ -14,7 +14,7 @@ export default function CandleChart({ candles, support, resistance }: { candles:
   if (!candles || candles.length < 3) {
     return <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted, border: `1px solid ${T.cardBr}`, borderRadius: 14 }}>차트 데이터를 불러오는 중이거나 없습니다.</div>
   }
-  const W = 820, H = 360, padT = 16, padB = 28, padR = 56, padL = 8
+  const W = 820, H = 360, padT = 16, padB = 28, padR = 96, padL = 8
   const closes = candles.map(c => c[4])
   const ma20 = sma(closes, 20), ma60 = sma(closes, 60)
   const vals = [...candles.map(c => c[2]), ...candles.map(c => c[3])]

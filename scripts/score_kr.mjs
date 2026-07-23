@@ -10,6 +10,10 @@ import fs from 'node:fs'
 // Supabase는 REST(PostgREST) fetch로 upsert — VPS에 SDK 설치 불필요.
 
 const AK = process.env.KIS_APP_KEY, SK = process.env.KIS_APP_SECRET
+const DART_KEY = process.env.DART_API_KEY
+// 종목코드→DART corp_code 매핑 (corpCode.xml에서 미리 생성)
+let CORPMAP = {}
+try { CORPMAP = JSON.parse(fs.readFileSync(fs.existsSync('/root/dart_corpmap.json') ? '/root/dart_corpmap.json' : './dart_corpmap.json', 'utf8')) } catch (e) {}
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lpdhtagnbqwjagtmifug.supabase.co'
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const KIS = 'https://openapi.koreainvestment.com:9443'
@@ -58,15 +62,15 @@ async function price(code, tok) {
   return j && j.output ? j.output : null
 }
 
-// KIS GET (재시도 1회 — 간헐 오류로 인한 skip 감소)
+// KIS GET (재시도 3회 — 간헐 오류로 인한 skip/누락 최소화)
 async function kisGet(path, tok, tr) {
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     try {
       const r = await fetch(`${KIS}${path}`, { headers: { authorization: `Bearer ${tok}`, appkey: AK, appsecret: SK, tr_id: tr } })
       const j = await r.json()
       if (j && (j.output || j.output1 || j.output2)) return j
     } catch (e) {}
-    await sleep(500)
+    await sleep(600 * (i + 1))
   }
   return null
 }
@@ -88,6 +92,75 @@ async function daily(code, tok) {
     d: r.stck_bsop_date, o: Number(r.stck_oprc), c: Number(r.stck_clpr), h: Number(r.stck_hgpr), l: Number(r.stck_lwpr), v: Number(r.acml_vol),
   })).filter(r => isFinite(r.c) && r.c > 0).reverse()
   return rows.length >= 20 ? rows : null
+}
+
+const Z_BAND = 0.5
+const _mean = a => a.reduce((x, y) => x + y, 0) / a.length
+const _std = (a, m) => a.length < 2 ? 0 : Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length - 1))
+function zLatest(vals) {
+  const v = vals.filter(Number.isFinite)
+  if (v.length < 2) return null
+  const last = v[v.length - 1], rest = v.slice(0, -1), m = _mean(rest), sd = _std(rest, m)
+  return sd === 0 ? null : (last - m) / sd
+}
+
+// 거시(12) — 시장 전체 공통. macro_daily 재사용(dxy·fed·10Y 완화=가점). 1회 계산.
+async function computeMacro() {
+  let rows = []
+  try { rows = await (await fetch(`${SUPA_URL}/rest/v1/macro_daily?select=dxy,fed_rate,dgs10&order=date.desc&limit=30`, { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } })).json() } catch (e) {}
+  const asc = Array.isArray(rows) ? [...rows].reverse() : []
+  if (asc.length < 5) return null
+  let s = 0
+  for (const k of ['dxy', 'fed_rate', 'dgs10']) {
+    const z = zLatest(asc.map(x => Number(x[k])))
+    s += z == null ? 2 : z < -Z_BAND ? 4 : z > Z_BAND ? 0 : 2   // 완화(하락)=가점
+  }
+  return Math.max(0, Math.min(12, s))
+}
+
+// 공매도 일별추이(22일) — 파생·공매도 팩터(15). 비중 낮고 감소=가점.
+async function shortSale(code, tok) {
+  const j = await kisGet(`/uapi/domestic-stock/v1/quotations/daily-short-sale?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${code}&FID_INPUT_DATE_1=${ymd(-40)}&FID_INPUT_DATE_2=${ymd(0)}`, tok, 'FHPST04830000')
+  const o2 = j && Array.isArray(j.output2) ? j.output2 : null
+  return o2
+}
+function computeDerivative(rows) {
+  if (!rows) return null
+  const ratios = rows.map(r => Number(r.ssts_vol_rlim)).filter(Number.isFinite).slice(0, 20)  // 최신순
+  if (ratios.length < 5) return null
+  const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length
+  const recent = ratios.slice(0, 5).reduce((a, b) => a + b, 0) / 5
+  const prev = ratios.slice(5).reduce((a, b) => a + b, 0) / Math.max(1, ratios.length - 5)
+  let s = avg < 2 ? 8 : avg < 5 ? 6 : avg < 10 ? 4 : 2          // 공매도 비중 낮을수록
+  s += recent < prev * 0.9 ? 7 : recent < prev * 1.1 ? 4 : 1    // 감소 추세 가점
+  return { score: Math.max(0, Math.min(15, Math.round(s))), avg: +avg.toFixed(1) }
+}
+
+// AI·재료(15) — DART 최근 30일 공시 유형 분류. §6: 실제 공시명만 사용, 지어내기 없음.
+const AI_POS = /(자기주식.*취득|자기주식.*소각|주식소각|자사주|단일판매.*공급계약|수주|무상증자|현금.*배당.*결정|잠정실적.*(흑자|증가)|기업설명회)/
+const AI_NEG = /(유상증자|전환사채|신주인수권부사채|교환사채|횡령|배임|감자|불성실공시|관리종목|상장폐지|영업정지|소송|최대주주.*변경|주식.*처분.*최대주주|부도|회생절차)/
+async function dartAI(code) {
+  if (!DART_KEY) return null
+  const cc = CORPMAP[code]
+  if (!cc) return { score: 8, note: '매핑없음(중립)' }   // 신규상장 등 → 중립
+  const st = ymd(-30), en = ymd(0)
+  let list = null
+  for (let i = 0; i < 2; i++) {
+    try {
+      const j = await (await fetch(`https://opendart.fss.or.kr/api/list.json?crtfc_key=${DART_KEY}&corp_code=${cc}&bgn_de=${st}&end_de=${en}&page_count=50`)).json()
+      if (j.status === '000') { list = j.list || []; break }
+      if (j.status === '013') { list = []; break }   // 조회 데이터 없음 = 공시 없음(중립)
+    } catch (e) {}
+    await sleep(400)
+  }
+  if (list == null) return null
+  let s = 8, pos = 0, neg = 0
+  for (const r of list) {
+    const nm = r.report_nm || ''
+    if (AI_POS.test(nm)) { pos++; if (pos <= 3) s += 2 }
+    if (AI_NEG.test(nm)) { neg++; if (neg <= 3) s -= 3 }
+  }
+  return { score: Math.max(0, Math.min(15, s)), pos, neg, count: list.length }
 }
 
 // 재무비율(장 무관·안정) — 성장률·ROE·부채·EPS·BPS. 재무 팩터(20)의 정식 소스.
@@ -174,9 +247,24 @@ function computeSupply(rows) {
 
 // ── 팩터 산출 (v0 근사, 0~배점) ──
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-function scoreStock(o, supplyInfo, techInfo, finInfo) {
+function scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiInfo) {
   const price = +o.stck_prpr, chg = +o.prdy_ctrt
   const na = []
+
+  // 거시(12): 시장 공통.
+  let macro = null
+  if (macroScore != null) macro = macroScore
+  else na.push('거시')
+
+  // AI·재료(15): DART 공시 분류.
+  let ai = null
+  if (aiInfo && aiInfo.score != null) ai = aiInfo.score
+  else na.push('AI')
+
+  // 파생·공매도(15).
+  let derivative = null
+  if (derivInfo && derivInfo.score != null) derivative = derivInfo.score
+  else na.push('파생')
 
   // 기술(20): 일봉 기반(RSI·이평 정배열·위치·거래량). 일봉 없으면 측정 안 됨.
   let technical = null
@@ -193,11 +281,16 @@ function scoreStock(o, supplyInfo, techInfo, finInfo) {
   if (finInfo && finInfo.score != null) financial = finInfo.score
   else na.push('재무')
 
-  // 미측정 팩터(거시12·AI15·파생15·전략5) → 측정 안 됨
-  na.push('거시', 'AI', '파생', '전략')
+  // 전략(5): 수급·기술 동시 점등 + 우량 눌림. (다른 팩터 측정됐을 때만)
+  let strategy = null
+  if (supply != null && technical != null && financial != null) {
+    let st = 0
+    if (supply >= 9 && technical >= 14) st += 3          // 수급+기술 동시 강함
+    if (financial >= 14 && technical >= 10) st += 2      // 우량 + 기술 받침
+    strategy = st
+  } else na.push('전략')
 
-  if (supplyInfo) { o._supplyDbg = `${supplyInfo.netDir} ${supplyInfo.posDays}/${supplyInfo.days}일` }
-  const measured = [['technical', technical, 20], ['supply', supply, 13], ['financial', financial, 20]]
+  const measured = [['macro', macro, 12], ['supply', supply, 13], ['financial', financial, 20], ['ai', ai, 15], ['derivative', derivative, 15], ['technical', technical, 20], ['strategy', strategy, 5]]
   const gotPts = measured.filter(m => m[1] != null).reduce((a, m) => a + m[1], 0)
   const gotCap = measured.filter(m => m[1] != null).reduce((a, m) => a + m[2], 0)
   const coverage = +(gotCap / 100).toFixed(2)
@@ -206,8 +299,10 @@ function scoreStock(o, supplyInfo, techInfo, finInfo) {
 
   return {
     scores: {
-      total, technical, supply, financial, coverage,
+      total, macro, supply, financial, ai, derivative, technical, strategy, coverage,
+      ai_disc: aiInfo ? `공시 ${aiInfo.count ?? 0}건 (호재 ${aiInfo.pos ?? 0}·악재 ${aiInfo.neg ?? 0})` : null,
       per: finInfo?.per ?? null, pbr: finInfo?.pbr ?? null, roe: finInfo?.roe ?? null, grs: finInfo?.grs ?? null,
+      short_ratio: derivInfo?.avg ?? null,
       price: isFinite(price) ? price : null, chg,
       // 기술 상세 + 지지/저항 (상세페이지용)
       rsi: techInfo?.rsi ?? null, ma5: techInfo?.ma5 ?? null, ma20: techInfo?.ma20 ?? null, ma60: techInfo?.ma60 ?? null,
@@ -233,8 +328,9 @@ async function upsert(row) {
 ;(async () => {
   const tok = await getToken()
   const now = new Date().toISOString()
+  const macroScore = await computeMacro()   // 시장 공통 1회
   const UNIVERSE = await fetchUniverse(tok)
-  console.log(`유니버스 ${UNIVERSE.length}종목 수집됨\n`)
+  console.log(`유니버스 ${UNIVERSE.length}종목 · 거시점수 ${macroScore ?? 'n/a'}\n`)
   let ok = 0
   for (const s of UNIVERSE) {
     try {
@@ -247,7 +343,10 @@ async function upsert(row) {
       const techInfo = computeTechAndLevels(await daily(s.code, tok))
       await sleep(250)
       const finInfo = computeFinancial(await financialRatio(s.code, tok), Number(o.stck_prpr))
-      const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo)
+      await sleep(250)
+      const derivInfo = computeDerivative(await shortSale(s.code, tok))
+      const aiInfo = await dartAI(s.code)
+      const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiInfo)
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'
       console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · ${sd} · PER ${scores.per} · PBR ${scores.pbr}`)
@@ -255,5 +354,11 @@ async function upsert(row) {
     } catch (e) { console.log('  err', s.name, String(e.message).slice(0, 80)) }
     await sleep(350)   // KIS 초당 제한 여유(2콜/종목)
   }
-  console.log(`\n완료: ${ok}/${UNIVERSE.length} 종목 적재`)
+  // 이번 런에 갱신 안 된 stale 행 삭제(옛 유니버스 잔재 정리)
+  try {
+    await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?cached_at=lt.${encodeURIComponent(now)}`, {
+      method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
+    })
+  } catch (e) {}
+  console.log(`\n완료: ${ok}/${UNIVERSE.length} 종목 적재 (stale 정리)`)
 })()
