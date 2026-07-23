@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 
-export const revalidate = 300 // 5분
+export const dynamic = 'force-dynamic' // 요청시 렌더(빌드때 env 없어도 안전 · 항상 최신)
 
 // 종목 점수판 — stock_score_cache 읽어 등급별 렌더. "내 분석 화면 공개" 프레임.
 // 커버리지 낮은 종목은 경고 표기(뻥튀기 방지, 크립토 교훈). 매수 권유 아님.
@@ -42,9 +42,11 @@ export default async function ScoresPage() {
               const cov = r.coverage != null ? Math.round(Number(r.coverage) * 100) : null
               const low = cov != null && cov < 85
               const col = gradeColor(total)
+              const price = r.scores?.price != null ? Number(r.scores.price).toLocaleString('ko-KR') + '원' : null
+              const chg = r.scores?.chg != null ? Number(r.scores.chg) : null
               return (
-                <div key={r.symbol} style={{ ...cardStyle, borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', border: `3px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15, color: col, flexShrink: 0 }}>
+                <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ ...cardStyle, borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 14, textDecoration: 'none', color: T.text }} className="hover:scale-[1.01] transition-transform">
+                  <div style={{ width: 46, height: 46, borderRadius: '50%', border: `3px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, color: col, flexShrink: 0 }}>
                     {total}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -54,7 +56,14 @@ export default async function ScoresPage() {
                       {cov != null && <span style={{ color: low ? T.red : T.muted, marginLeft: 8 }}>커버리지 {cov}%{low ? ' ⚠️' : ''}</span>}
                     </div>
                   </div>
-                </div>
+                  {price && (
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{price}</div>
+                      {chg != null && <div style={{ fontSize: 12, fontWeight: 700, color: chg > 0 ? T.green : chg < 0 ? T.red : T.muted }}>{chg > 0 ? '▲' : chg < 0 ? '▼' : ''}{Math.abs(chg)}%</div>}
+                    </div>
+                  )}
+                  <span style={{ color: T.muted, fontSize: 18, flexShrink: 0 }}>›</span>
+                </Link>
               )
             })}
           </div>

@@ -51,12 +51,72 @@ async function price(code, tok) {
   return j.output || null
 }
 
+// KIS GET (재시도 1회 — 간헐 오류로 인한 skip 감소)
+async function kisGet(path, tok, tr) {
+  for (let i = 0; i < 2; i++) {
+    try {
+      const r = await fetch(`${KIS}${path}`, { headers: { authorization: `Bearer ${tok}`, appkey: AK, appsecret: SK, tr_id: tr } })
+      const j = await r.json()
+      if (j && (j.output || j.output1 || j.output2)) return j
+    } catch (e) {}
+    await sleep(500)
+  }
+  return null
+}
+
 // 투자자별 매매동향(30일) — 외국인·기관 순매수 거래대금. 장 마감 무관(과거 데이터).
 async function investor(code, tok) {
-  const r = await fetch(`${KIS}/uapi/domestic-stock/v1/quotations/inquire-investor?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${code}`,
-    { headers: { authorization: `Bearer ${tok}`, appkey: AK, appsecret: SK, tr_id: 'FHKST01010900' } })
-  const j = await r.json()
-  return Array.isArray(j.output) ? j.output : null
+  const j = await kisGet(`/uapi/domestic-stock/v1/quotations/inquire-investor?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${code}`, tok, 'FHKST01010900')
+  return j && Array.isArray(j.output) ? j.output : null
+}
+
+// 일봉 100일 — RSI·이평·지지/저항 계산용.
+function ymd(offsetDays) { const d = new Date(Date.now() + 9 * 3600e3 + offsetDays * 86400e3); return d.toISOString().slice(0, 10).replace(/-/g, '') }
+async function daily(code, tok) {
+  const j = await kisGet(`/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${code}&FID_INPUT_DATE_1=${ymd(-140)}&FID_INPUT_DATE_2=${ymd(0)}&FID_PERIOD_DIV_CODE=D&FID_ORG_ADJ_PRC=0`, tok, 'FHKST03010100')
+  const o2 = j && Array.isArray(j.output2) ? j.output2 : null
+  if (!o2) return null
+  // 최신순 → 오래된순, 미완성(거래량 0) 당일 제외
+  const rows = o2.filter(r => Number(r.acml_vol) > 0).map(r => ({
+    c: Number(r.stck_clpr), h: Number(r.stck_hgpr), l: Number(r.stck_lwpr), v: Number(r.acml_vol),
+  })).filter(r => isFinite(r.c) && r.c > 0).reverse()
+  return rows.length >= 20 ? rows : null
+}
+
+function rsi14(closes) {
+  if (closes.length < 15) return null
+  let g = 0, l = 0
+  for (let i = closes.length - 14; i < closes.length; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) g += d; else l -= d }
+  if (g + l === 0) return 50
+  const rs = (g / 14) / ((l / 14) || 1e-9)
+  return Math.round(100 - 100 / (1 + rs))
+}
+const ma = (a, n) => a.length >= n ? a.slice(-n).reduce((x, y) => x + y, 0) / n : null
+
+// 기술(20) + 지지/저항 — 일봉 기반.
+function computeTechAndLevels(rows) {
+  if (!rows) return null
+  const closes = rows.map(r => r.c), last = closes[closes.length - 1]
+  const rsi = rsi14(closes)
+  const m5 = ma(closes, 5), m20 = ma(closes, 20), m60 = ma(closes, 60)
+  const recent = rows.slice(-20)
+  const swingLow = Math.min(...recent.map(r => r.l))
+  const swingHigh = Math.max(...recent.map(r => r.h))
+  const hi52 = Math.max(...rows.map(r => r.h)), lo52 = Math.min(...rows.map(r => r.l))
+  // 점수: 이평 정배열(6) + RSI 밴드(5) + 위치(5) + 거래량 추세(4)
+  let s = 0
+  if (m5 && m20 && m60) s += (m5 > m20 && m20 > m60) ? 6 : (m5 > m20) ? 3 : 0
+  if (rsi != null) s += rsi >= 70 ? 1 : rsi >= 55 ? 5 : rsi >= 45 ? 4 : rsi >= 30 ? 2 : 3
+  const pos = hi52 > lo52 ? (last - lo52) / (hi52 - lo52) : 0.5
+  s += pos < 0.4 ? 5 : pos < 0.7 ? 4 : pos < 0.9 ? 2 : 1
+  const vMa5 = ma(rows.map(r => r.v), 5), vMa20 = ma(rows.map(r => r.v), 20)
+  if (vMa5 && vMa20) s += vMa5 > vMa20 * 1.2 ? 4 : vMa5 > vMa20 ? 3 : 1
+  return {
+    technical: Math.max(0, Math.min(20, Math.round(s))),
+    rsi, ma5: m5 ? Math.round(m5) : null, ma20: m20 ? Math.round(m20) : null, ma60: m60 ? Math.round(m60) : null,
+    support: Math.round(swingLow), resistance: Math.round(swingHigh),
+    w52_high: Math.round(hi52), w52_low: Math.round(lo52), last,
+  }
 }
 
 // 수급 점수(13): 최근 20일 (외국인+기관) 순매수의 일관성(며칠 샀나) + 방향. §6 결측시 null.
@@ -80,21 +140,15 @@ function computeSupply(rows) {
 
 // ── 팩터 산출 (v0 근사, 0~배점) ──
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-function scoreStock(o, supplyInfo) {
+function scoreStock(o, supplyInfo, techInfo) {
   const price = +o.stck_prpr, chg = +o.prdy_ctrt
-  const hi52 = +o.w52_hgpr, lo52 = +o.w52_lwpr
   const per = +o.per, pbr = +o.pbr
-  const frgn = +o.hts_frgn_ehrt   // 외국인 보유율(%)
   const na = []
 
-  // 기술(20): 52주 위치(눌림 가점, 고점 근처 감점) + 당일 모멘텀
+  // 기술(20): 일봉 기반(RSI·이평 정배열·위치·거래량). 일봉 없으면 측정 안 됨.
   let technical = null
-  if (isFinite(hi52) && isFinite(lo52) && hi52 > lo52) {
-    const pos = (price - lo52) / (hi52 - lo52)   // 0~1
-    const posScore = pos < 0.4 ? 14 : pos < 0.7 ? 18 : pos < 0.9 ? 12 : 6   // 중단 sweet
-    const mom = clamp(6 + chg * 0.8, 0, 6)
-    technical = Math.round(clamp(posScore * 0.7 + mom, 0, 20))
-  } else na.push('기술')
+  if (techInfo && techInfo.technical != null) technical = techInfo.technical
+  else na.push('기술')
 
   // 수급(13): 외국인·기관 20일 순매수 일관성 (V1 — 투자자별 매매동향). 결측시 측정 안 됨.
   let supply = null
@@ -124,7 +178,12 @@ function scoreStock(o, supplyInfo) {
     scores: {
       total, technical, supply, financial, coverage,
       per: isFinite(per) ? per : null, pbr: isFinite(pbr) ? pbr : null,
-      frgn_hold: isFinite(frgn) ? frgn : null, chg,
+      price: isFinite(price) ? price : null, chg,
+      // 기술 상세 + 지지/저항 (상세페이지용)
+      rsi: techInfo?.rsi ?? null, ma5: techInfo?.ma5 ?? null, ma20: techInfo?.ma20 ?? null, ma60: techInfo?.ma60 ?? null,
+      support: techInfo?.support ?? null, resistance: techInfo?.resistance ?? null,
+      w52_high: techInfo?.w52_high ?? null, w52_low: techInfo?.w52_low ?? null,
+      supply_dir: supplyInfo?.netDir ?? null, supply_days: supplyInfo ? `${supplyInfo.posDays}/${supplyInfo.days}` : null,
       naFactors: na,
     },
     coverage,
@@ -151,7 +210,9 @@ async function upsert(row) {
       await sleep(250)
       const inv = await investor(s.code, tok)
       const supplyInfo = computeSupply(inv)
-      const { scores, coverage } = scoreStock(o, supplyInfo)
+      await sleep(250)
+      const techInfo = computeTechAndLevels(await daily(s.code, tok))
+      const { scores, coverage } = scoreStock(o, supplyInfo, techInfo)
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'
       console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · ${sd} · PER ${scores.per} · PBR ${scores.pbr}`)
