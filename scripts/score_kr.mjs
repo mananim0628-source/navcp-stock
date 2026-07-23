@@ -24,8 +24,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function fetchUniverse(tok) {
   const out = []
   const seen = new Set()
-  // 코스피(J)·코스닥은 같은 랭킹 API가 시총순 반환. 한 번에 ~30 → 가격밴드로 더 긁기.
-  const bands = [['', ''], ['100000', ''], ['50000', '99999'], ['20000', '49999'], ['', '19999']]
+  // 코스피(J)·코스닥은 같은 랭킹 API가 시총순 반환. 한 번에 ~30 → 가격밴드 세분화로 더 긁기.
+  const TARGET = 80
+  const bands = [['', ''], ['300000', ''], ['150000', '299999'], ['100000', '149999'], ['70000', '99999'],
+    ['50000', '69999'], ['35000', '49999'], ['25000', '34999'], ['15000', '24999'], ['10000', '14999'], ['5000', '9999'], ['', '4999']]
   for (const [p1, p2] of bands) {
     const j = await kisGet(`/uapi/domestic-stock/v1/ranking/market-cap?fid_cond_mrkt_div_code=J&fid_cond_scr_div_code=20174&fid_div_cls_code=0&fid_input_iscd=0000&fid_trgt_cls_code=0&fid_trgt_exls_cls_code=0&fid_input_price_1=${p1}&fid_input_price_2=${p2}&fid_vol_cnt=`, tok, 'FHPST01740000')
     const list = j && Array.isArray(j.output) ? j.output : []
@@ -37,9 +39,9 @@ async function fetchUniverse(tok) {
       if (/(ETF|ETN|리츠|스팩|우$|우B$|배당|인버스|레버리지|선물)/i.test(name)) continue
       seen.add(code)
       out.push({ code, name, market: 'KR' })
-      if (out.length >= 40) break
+      if (out.length >= TARGET) break
     }
-    if (out.length >= 40) break
+    if (out.length >= TARGET) break
     await sleep(300)
   }
   return out
