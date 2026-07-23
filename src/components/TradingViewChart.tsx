@@ -13,6 +13,7 @@ export default function TradingViewChart({ code }: { code: string }) {
     s.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
     s.type = 'text/javascript'
     s.async = true
+    // 표준 최소 설정 — 커스텀 필드가 많으면 심볼이 거부되어 데모(AAPL)로 폴백됨.
     s.innerHTML = JSON.stringify({
       autosize: true,
       symbol: `KRX:${code}`,
@@ -21,11 +22,7 @@ export default function TradingViewChart({ code }: { code: string }) {
       theme: 'dark',
       style: '1',
       locale: 'kr',
-      backgroundColor: 'rgba(14,20,38,0.6)',
-      gridColor: 'rgba(120,150,220,0.08)',
-      hide_side_toolbar: false,
       allow_symbol_change: false,
-      studies: ['RSI@tv-basicstudies', 'MASimple@tv-basicstudies'],
       support_host: 'https://www.tradingview.com',
     })
     ref.current.appendChild(s)

@@ -16,21 +16,30 @@ const KIS = 'https://openapi.koreainvestment.com:9443'
 const TOKEN_FILE = fs.existsSync('/root') ? '/root/.kis_token' : './.kis_token'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-// 유니버스 (v0: 시총 상위 국내 대표 + 코스닥 일부). market J=코스피/코스닥 공통 코드.
-const UNIVERSE = [
-  { code: '005930', name: '삼성전자', market: 'KOSPI' },
-  { code: '000660', name: 'SK하이닉스', market: 'KOSPI' },
-  { code: '373220', name: 'LG에너지솔루션', market: 'KOSPI' },
-  { code: '207940', name: '삼성바이오로직스', market: 'KOSPI' },
-  { code: '005380', name: '현대차', market: 'KOSPI' },
-  { code: '000270', name: '기아', market: 'KOSPI' },
-  { code: '005490', name: 'POSCO홀딩스', market: 'KOSPI' },
-  { code: '035420', name: 'NAVER', market: 'KOSPI' },
-  { code: '035720', name: '카카오', market: 'KOSPI' },
-  { code: '068270', name: '셀트리온', market: 'KOSPI' },
-  { code: '247540', name: '에코프로비엠', market: 'KOSDAQ' },
-  { code: '196170', name: '알테오젠', market: 'KOSDAQ' },
-]
+// 유니버스 = KIS 시총상위 자동 수집(코스피+코스닥). 우선주·ETF·스팩·리츠 제외(정화).
+async function fetchUniverse(tok) {
+  const out = []
+  const seen = new Set()
+  // 코스피(J)·코스닥은 같은 랭킹 API가 시총순 반환. 한 번에 ~30 → 가격밴드로 더 긁기.
+  const bands = [['', ''], ['100000', ''], ['50000', '99999'], ['20000', '49999'], ['', '19999']]
+  for (const [p1, p2] of bands) {
+    const j = await kisGet(`/uapi/domestic-stock/v1/ranking/market-cap?fid_cond_mrkt_div_code=J&fid_cond_scr_div_code=20174&fid_div_cls_code=0&fid_input_iscd=0000&fid_trgt_cls_code=0&fid_trgt_exls_cls_code=0&fid_input_price_1=${p1}&fid_input_price_2=${p2}&fid_vol_cnt=`, tok, 'FHPST01740000')
+    const list = j && Array.isArray(j.output) ? j.output : []
+    for (const r of list) {
+      const code = r.mksc_shrn_iscd, name = (r.hts_kor_isnm || '').trim()
+      if (!code || seen.has(code)) continue
+      // 정화: 우선주(끝 0 아님) · ETF/ETN/리츠/스팩 · 이름에 '우' 끝
+      if (!/0$/.test(code)) continue
+      if (/(ETF|ETN|리츠|스팩|우$|우B$|배당|인버스|레버리지|선물)/i.test(name)) continue
+      seen.add(code)
+      out.push({ code, name, market: 'KR' })
+      if (out.length >= 40) break
+    }
+    if (out.length >= 40) break
+    await sleep(300)
+  }
+  return out
+}
 
 async function getToken() {
   if (fs.existsSync(TOKEN_FILE)) {
@@ -45,10 +54,8 @@ async function getToken() {
 }
 
 async function price(code, tok) {
-  const r = await fetch(`${KIS}/uapi/domestic-stock/v1/quotations/inquire-price?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${code}`,
-    { headers: { authorization: `Bearer ${tok}`, appkey: AK, appsecret: SK, tr_id: 'FHKST01010100' } })
-  const j = await r.json()
-  return j.output || null
+  const j = await kisGet(`/uapi/domestic-stock/v1/quotations/inquire-price?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${code}`, tok, 'FHKST01010100')
+  return j && j.output ? j.output : null
 }
 
 // KIS GET (재시도 1회 — 간헐 오류로 인한 skip 감소)
@@ -202,6 +209,8 @@ async function upsert(row) {
 ;(async () => {
   const tok = await getToken()
   const now = new Date().toISOString()
+  const UNIVERSE = await fetchUniverse(tok)
+  console.log(`유니버스 ${UNIVERSE.length}종목 수집됨\n`)
   let ok = 0
   for (const s of UNIVERSE) {
     try {
