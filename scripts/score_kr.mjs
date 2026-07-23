@@ -157,12 +157,14 @@ async function dartAI(code) {
   }
   if (list == null) return null
   let s = 8, pos = 0, neg = 0
+  const posNames = [], negNames = []
+  const clean = nm => nm.replace(/^\[기재정정\]/, '').replace(/\(.*$/, '').trim().slice(0, 24)
   for (const r of list) {
     const nm = r.report_nm || ''
-    if (AI_POS.test(nm)) { pos++; if (pos <= 3) s += 2 }
-    if (AI_NEG.test(nm)) { neg++; if (neg <= 3) s -= 3 }
+    if (AI_POS.test(nm)) { pos++; if (pos <= 3) s += 2; if (posNames.length < 2) posNames.push({ dt: r.rcept_dt, nm: clean(nm) }) }
+    if (AI_NEG.test(nm)) { neg++; if (neg <= 3) s -= 3; if (negNames.length < 2) negNames.push({ dt: r.rcept_dt, nm: clean(nm) }) }
   }
-  return { score: Math.max(0, Math.min(15, s)), pos, neg, count: list.length }
+  return { score: Math.max(0, Math.min(15, s)), pos, neg, count: list.length, posNames, negNames }
 }
 
 // 재무비율(장 무관·안정) — 성장률·ROE·부채·EPS·BPS. 재무 팩터(20)의 정식 소스.
@@ -303,6 +305,7 @@ function scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiI
     scores: {
       total, macro, supply, financial, ai, derivative, technical, strategy, coverage,
       ai_disc: aiInfo ? `공시 ${aiInfo.count ?? 0}건 (호재 ${aiInfo.pos ?? 0}·악재 ${aiInfo.neg ?? 0})` : null,
+      ai_pos: aiInfo?.posNames ?? null, ai_neg: aiInfo?.negNames ?? null,   // 실제 호재/악재 공시명(홈 피드용)
       per: finInfo?.per ?? null, pbr: finInfo?.pbr ?? null, roe: finInfo?.roe ?? null, grs: finInfo?.grs ?? null,
       short_ratio: derivInfo?.avg ?? null,
       price: isFinite(price) ? price : null, chg,
