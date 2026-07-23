@@ -96,12 +96,10 @@ function scoreStock(o, supplyInfo) {
     technical = Math.round(clamp(posScore * 0.7 + mom, 0, 20))
   } else na.push('기술')
 
-  // 수급(13): 외국인 보유율 레벨 (v0 근사). 장 마감 시 KIS가 0 반환 → '측정 안 됨' 처리(뻥튀기/저평가 방지).
-  // 진짜 수급(외국인·기관 20일 순매수)은 v1에서 투자자별 매매동향 API로 교체.
+  // 수급(13): 외국인·기관 20일 순매수 일관성 (V1 — 투자자별 매매동향). 결측시 측정 안 됨.
   let supply = null
-  if (isFinite(frgn) && frgn > 0) {
-    supply = Math.round(clamp(frgn / 50 * 13, 0, 13))   // 50%+면 만점 근사
-  } else na.push('수급')
+  if (supplyInfo && supplyInfo.score != null) supply = supplyInfo.score
+  else na.push('수급')
 
   // 밸류→재무(20 중 밸류 파트만, v0): PER/PBR 낮을수록 가점
   let financial = null
@@ -114,6 +112,7 @@ function scoreStock(o, supplyInfo) {
   // 미측정 팩터(거시12·AI15·파생15·전략5) → 측정 안 됨
   na.push('거시', 'AI', '파생', '전략')
 
+  if (supplyInfo) { o._supplyDbg = `${supplyInfo.netDir} ${supplyInfo.posDays}/${supplyInfo.days}일` }
   const measured = [['technical', technical, 20], ['supply', supply, 13], ['financial', financial, 20]]
   const gotPts = measured.filter(m => m[1] != null).reduce((a, m) => a + m[1], 0)
   const gotCap = measured.filter(m => m[1] != null).reduce((a, m) => a + m[2], 0)
@@ -149,12 +148,16 @@ async function upsert(row) {
     try {
       const o = await price(s.code, tok)
       if (!o || !o.stck_prpr) { console.log('  skip', s.name, '(응답없음)'); continue }
-      const { scores, coverage } = scoreStock(o)
+      await sleep(250)
+      const inv = await investor(s.code, tok)
+      const supplyInfo = computeSupply(inv)
+      const { scores, coverage } = scoreStock(o, supplyInfo)
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
-      console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · 외인 ${scores.frgn_hold}% · PER ${scores.per} · PBR ${scores.pbr}`)
+      const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'
+      console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · ${sd} · PER ${scores.per} · PBR ${scores.pbr}`)
       ok++
     } catch (e) { console.log('  err', s.name, String(e.message).slice(0, 80)) }
-    await sleep(300)   // KIS 초당 제한 여유
+    await sleep(350)   // KIS 초당 제한 여유(2콜/종목)
   }
   console.log(`\n완료: ${ok}/${UNIVERSE.length} 종목 적재`)
 })()
