@@ -22,7 +22,7 @@ type Disc = { dt?: string; nm?: string }
 
 export default async function Home() {
   const [{ data: allRows }, kospi, kosdaq, nasdaq, sp500, vix, usdkrw] = await Promise.all([
-    supabase.from('stock_score_cache').select('symbol,name,scores,coverage').limit(120),
+    supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').order('cached_at', { ascending: false }).limit(120),
     idx('^KS11'), idx('^KQ11'), idx('^IXIC'), idx('^GSPC'), idx('^VIX'), idx('KRW=X'),
   ])
   const rows = (allRows || []) as StockScore[]
@@ -44,6 +44,19 @@ export default async function Home() {
   }
   const byDt = (a: Feed, b: Feed) => String(b.d.dt || '').localeCompare(String(a.d.dt || ''))
   good.sort(byDt); bad.sort(byDt)
+
+  // 오늘의 급등/급락 무버스 (일간 등락률)
+  const moved = rows.filter(r => r.scores?.chg != null && Number(r.scores.chg) !== 0)
+  const gainers = [...moved].sort((a, b) => num(b.scores?.chg) - num(a.scores?.chg)).slice(0, 5)
+  const losers = [...moved].sort((a, b) => num(a.scores?.chg) - num(b.scores?.chg)).slice(0, 5)
+
+  // 데이터 갱신 시각 ("N분 전")
+  const latest = (rows[0] as any)?.cached_at as string | undefined
+  let freshTxt = ''
+  if (latest) {
+    const mins = Math.max(0, Math.round((Date.now() - new Date(latest).getTime()) / 60000))
+    freshTxt = mins < 60 ? `${mins}분 전 갱신` : mins < 1440 ? `${Math.round(mins / 60)}시간 전 갱신` : `${Math.round(mins / 1440)}일 전 갱신`
+  }
 
   // 국면 판정 — 코스피 추세 + VIX
   let regime: { label: string; col: string; note: string } = { label: '중립', col: T.amber, note: '방향성 관망 구간' }
@@ -69,7 +82,8 @@ export default async function Home() {
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
         <div style={{ maxWidth: 960, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontWeight: 800, fontSize: 18 }}>🧭 투자나침반 <span style={{ color: T.teal }}>주식</span></span>
-          <nav style={{ display: 'flex', gap: 18, fontSize: 14 }}>
+          <nav style={{ display: 'flex', gap: 18, fontSize: 14, alignItems: 'center' }}>
+            {freshTxt && <span style={{ fontSize: 11, color: T.muted }}>🕐 {freshTxt}</span>}
             <Link href="/scores" style={{ color: T.teal, fontWeight: 700 }}>종목 점수</Link>
             <a href="https://navcp.xyz" style={{ color: T.muted }}>크립토 →</a>
           </nav>
@@ -124,6 +138,28 @@ export default async function Home() {
           </div>
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>※ DART 전자공시 기반 자동 분류. 공시 성격 참고용이며 주가 방향을 보장하지 않습니다.</div>
+
+        {/* 오늘의 급등/급락 */}
+        {moved.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14, marginTop: 28 }}>
+            {[{ t: '📈 오늘의 급등', list: gainers, up: true }, { t: '📉 오늘의 급락', list: losers, up: false }].map(g => (
+              <div key={g.t} style={{ ...cardStyle, borderRadius: 14, padding: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: g.up ? T.green : T.red, marginBottom: 10 }}>{g.t}</div>
+                {g.list.map((r, i) => {
+                  const chg = num(r.scores?.chg)
+                  const total = Math.round(num(r.scores?.total))
+                  return (
+                    <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: i ? `1px solid ${T.cardBr}` : 'none', textDecoration: 'none', color: T.text }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.symbol}</span>
+                      <span style={{ fontSize: 12, color: gradeColor(total), fontWeight: 700 }}>{total}점</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: chg > 0 ? T.green : T.red, minWidth: 56, textAlign: 'right' }}>{chg > 0 ? '▲' : '▼'}{Math.abs(chg)}%</span>
+                    </Link>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* 오늘 점수 높은 종목 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 30 }}>
