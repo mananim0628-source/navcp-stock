@@ -96,6 +96,62 @@ async function daily(code, tok) {
   return rows.length >= 20 ? rows : null
 }
 
+// ───────── 토스증권 Open API (하이브리드 보강) ─────────
+// KIS가 데이터 백본. 토스는 잘하는 것만: ①수정주가 캔들(액면분할·배당 반영) ②종목 경고(유니버스 정화).
+// 공식 스펙 실측 기준: /oauth2/token(client_credentials), /api/v1/candles(symbol,interval,count,adjusted),
+// /api/v1/stocks/{symbol}/warnings. 재무·공매도·종목별 수급·시총랭킹은 토스에 없음 → KIS 유지.
+// ⚠️ 주문(/orders) 계열은 규제상(투자일임·자동매매 배제) 절대 사용하지 않는다.
+const TOSS_ID = process.env.TOSS_CLIENT_ID, TOSS_SECRET = process.env.TOSS_CLIENT_SECRET
+const TOSS_BASE = 'https://openapi.tossinvest.com'
+let _tossTok = null, _tossExp = 0
+
+async function tossToken() {
+  if (!TOSS_ID || !TOSS_SECRET) return null
+  if (_tossTok && Date.now() < _tossExp) return _tossTok
+  try {
+    const r = await fetch(`${TOSS_BASE}/oauth2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'client_credentials', client_id: TOSS_ID, client_secret: TOSS_SECRET }),
+    })
+    if (!r.ok) { console.log('  toss token fail', r.status); return null }
+    const j = await r.json()
+    _tossTok = j.access_token
+    _tossExp = Date.now() + Math.max(60, (j.expires_in || 3600) - 120) * 1000
+    return _tossTok
+  } catch (e) { console.log('  toss token err', String(e.message).slice(0, 50)); return null }
+}
+async function tossGet(path) {
+  const t = await tossToken(); if (!t) return null
+  try {
+    const r = await fetch(`${TOSS_BASE}${path}`, { headers: { Authorization: `Bearer ${t}` } })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+// 수정주가 일봉 → KIS daily와 동일 형태로 반환(실패 시 null → 호출부가 KIS 폴백)
+async function tossDaily(code) {
+  const j = await tossGet(`/api/v1/candles?symbol=${code}&interval=1d&count=200&adjusted=true`)
+  const cs = j?.result?.candles
+  if (!Array.isArray(cs) || cs.length < 20) return null
+  const rows = cs.map(c => ({
+    d: String(c.timestamp).slice(0, 10).replace(/-/g, ''),
+    o: Number(c.openPrice), c: Number(c.closePrice), h: Number(c.highPrice), l: Number(c.lowPrice), v: Number(c.volume),
+  })).filter(r => isFinite(r.c) && r.c > 0)
+  rows.sort((a, b) => a.d.localeCompare(b.d))   // 오래된순
+  return rows.length >= 20 ? rows : null
+}
+// 유니버스 정화용 경고(정리매매·투자경고·투자위험·단기과열). VI는 일시적이라 제외.
+const EXCLUDE_WARN = new Set(['LIQUIDATION_TRADING', 'INVESTMENT_WARNING', 'INVESTMENT_RISK', 'OVERHEATED'])
+async function tossWarnings(code) {
+  const j = await tossGet(`/api/v1/stocks/${code}/warnings`)
+  const list = j?.result?.warnings ?? j?.result
+  if (!Array.isArray(list)) return null
+  const today = new Date().toISOString().slice(0, 10)
+  const active = list.filter(w => EXCLUDE_WARN.has(w.warningType) && (!w.endDate || w.endDate >= today))
+  return active.map(w => w.warningType)
+}
+
 const Z_BAND = 0.5
 const _mean = a => a.reduce((x, y) => x + y, 0) / a.length
 const _std = (a, m) => a.length < 2 ? 0 : Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length - 1))
@@ -341,7 +397,8 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const macroScore = await computeMacro()   // 시장 공통 1회
   const UNIVERSE = await fetchUniverse(tok)
   console.log(`유니버스 ${UNIVERSE.length}종목 · 거시점수 ${macroScore ?? 'n/a'}\n`)
-  let ok = 0
+  let ok = 0, tossUsed = 0
+  console.log(TOSS_ID ? '토스 보강: 활성(수정주가 캔들·유의종목 필터)' : '토스 보강: 미설정 → KIS 단독')
   for (const s of UNIVERSE) {
     try {
       const o = await price(s.code, tok)
@@ -350,7 +407,13 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const inv = await investor(s.code, tok)
       const supplyInfo = computeSupply(inv)
       await sleep(250)
-      const techInfo = computeTechAndLevels(await daily(s.code, tok))
+      // 토스 유의종목(정리매매·투자경고·투자위험·단기과열) 제외 — 유니버스 정화
+      const warn = await tossWarnings(s.code)
+      if (warn && warn.length) { console.log('  skip', s.name, '(유의종목:', warn.join(','), ')'); continue }
+      // 캔들: 토스 수정주가 우선, 실패 시 KIS 폴백
+      const tossC = await tossDaily(s.code)
+      const techInfo = computeTechAndLevels(tossC || (await daily(s.code, tok)))
+      if (tossC) tossUsed++
       await sleep(250)
       const finInfo = computeFinancial(await financialRatio(s.code, tok), Number(o.stck_prpr))
       await sleep(250)
@@ -382,5 +445,5 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       console.log(`이력 스냅샷 ${history.length}건 적재 (${r.ok ? 'ok' : 'fail ' + r.status})`)
     } catch (e) { console.log('이력 적재 err', String(e.message).slice(0, 60)) }
   }
-  console.log(`\n완료: ${ok}/${UNIVERSE.length} 종목 적재 (stale 정리)`)
+  console.log(`\n완료: ${ok}/${UNIVERSE.length} 종목 적재 (stale 정리) · 토스 수정주가 캔들 ${tossUsed}건`)
 })()
