@@ -12,7 +12,7 @@ const TOSS_BASE = 'https://openapi.tossinvest.com'
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lpdhtagnbqwjagtmifug.supabase.co'
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SEC_UA = { 'User-Agent': 'navcp-stock research contact@navcp.xyz', 'Accept-Encoding': 'gzip, deflate' }
-const TARGET = Number(process.env.US_TARGET || 40)
+const TARGET = Number(process.env.US_TARGET || 100)
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const mean = a => a.reduce((x, y) => x + y, 0) / a.length
@@ -273,10 +273,21 @@ async function computeMacro() {
 
 // ───────── 유니버스: 거래대금 상위 → 필터 → 시총 상위 ─────────
 async function fetchUniverse() {
-  const rk = await tossGet('/api/v1/rankings?type=MARKET_TRADING_AMOUNT&marketCountry=US&duration=1d&count=100')
-  const ranks = rk?.result?.rankings || []
+  // 랭킹은 타입당 상위 100위가 상한 → 여러 타입을 합쳐 심볼 풀을 넓힌다(중복 제거).
+  const TYPES = ['MARKET_TRADING_AMOUNT', 'MARKET_TRADING_VOLUME', 'TOSS_SECURITIES_TRADING_AMOUNT']
+  const ranks = []
+  const seen = new Set()
+  for (const ty of TYPES) {
+    const rk = await tossGet(`/api/v1/rankings?type=${ty}&marketCountry=US&duration=1d&count=100`)
+    for (const r of (rk?.result?.rankings || [])) {
+      if (!r.symbol || seen.has(r.symbol)) continue
+      seen.add(r.symbol); ranks.push(r)
+    }
+    await sleep(300)
+  }
   if (!ranks.length) return []
-  const syms = ranks.map(r => r.symbol).filter(Boolean)
+  console.log(`[US] 랭킹 병합 심볼 ${ranks.length}개`)
+  const syms = ranks.map(r => r.symbol)
   const out = []
   for (let i = 0; i < syms.length; i += 50) {
     const batch = syms.slice(i, i + 50)

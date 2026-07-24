@@ -1,5 +1,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { max-width: 100%; overflow-x: hidden; }
+/* overflow-x:hidden 은 조상에 스크롤 컨테이너를 만들어 position:sticky 를 무력화한다.
+   가로 넘침만 막고 sticky 는 살리려면 clip 을 쓴다(지원 안 되면 hidden 폴백). */
+html, body { max-width: 100%; overflow-x: clip; }
+@supports not (overflow-x: clip) { html, body { overflow-x: hidden; } }
 body {
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -12,7 +15,7 @@ button { font-family: inherit; }
 /* 홈 2열 셸: 본문 + 우측 실시간 채팅 레일 */
 .shell { max-width: 1360px; margin: 0 auto; padding: 24px 20px 60px; display: flex; gap: 22px; align-items: flex-start; }
 .shell-main { flex: 1; min-width: 0; max-width: 960px; }
-.chat-rail { width: 340px; flex-shrink: 0; position: sticky; top: 88px; height: calc(100vh - 108px); }
+.chat-rail { width: 340px; flex-shrink: 0; position: sticky; top: 84px; height: calc(100vh - 104px); align-self: flex-start; }
 @media (max-width: 1080px) {
   .shell { flex-direction: column; }
   .chat-rail { width: 100%; position: static; height: 520px; }

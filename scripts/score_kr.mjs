@@ -25,7 +25,7 @@ async function fetchUniverse(tok) {
   const out = []
   const seen = new Set()
   // 코스피(J)·코스닥은 같은 랭킹 API가 시총순 반환. 한 번에 ~30 → 가격밴드 세분화로 더 긁기.
-  const TARGET = 80
+  const TARGET = Number(process.env.KR_TARGET || 150)
   const bands = [['', ''], ['300000', ''], ['150000', '299999'], ['100000', '149999'], ['70000', '99999'],
     ['50000', '69999'], ['35000', '49999'], ['25000', '34999'], ['15000', '24999'], ['10000', '14999'], ['5000', '9999'], ['', '4999']]
   for (const [p1, p2] of bands) {

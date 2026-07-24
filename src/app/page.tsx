@@ -4,6 +4,8 @@ import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CommunityChat from '@/components/CommunityChat'
 import MarketClock from '@/components/MarketClock'
 import { marketHours } from '@/lib/toss'
+import { getLang, tr } from '@/lib/i18n'
+import LangToggle from '@/components/LangToggle'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +26,7 @@ type Disc = { dt?: string; nm?: string }
 const num = (v: unknown) => (v == null ? 0 : Number(v))
 
 export default async function Home() {
+  const lang = getLang(); const t = tr(lang); const isEn = lang === 'en'
   const [{ data: krData }, { data: usData }, hours, { data: hist }, kospi, kosdaq, nasdaq, sp500, vix, usdkrw] = await Promise.all([
     supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').eq('country', 'KR').limit(150),
     supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').eq('country', 'US').limit(150),
@@ -52,6 +55,14 @@ export default async function Home() {
   }
   const byDt = (a: Feed, b: Feed) => String(b.d.dt || '').localeCompare(String(a.d.dt || ''))
   good.sort(byDt); bad.sort(byDt)
+  // 국내 공시가 훨씬 잦아 그대로 자르면 미국이 안 보인다 → 시장별로 균형 있게 섞는다.
+  const mix = (list: Feed[], n = 6) => {
+    const k = list.filter(x => !x.us), u = list.filter(x => x.us)
+    const half = Math.ceil(n / 2)
+    const uTake = u.slice(0, Math.min(half, u.length))
+    return [...k.slice(0, n - uTake.length), ...uTake].sort(byDt)
+  }
+  const goodMix = mix(good), badMix = mix(bad)
 
   // 기관·외국인 순매수 — 국내 전용(미국은 해당 개념 없음)
   const flow = [...kr].filter(r => (r.scores as any)?.supply_dir === '순매수')
@@ -158,13 +169,14 @@ export default async function Home() {
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
         <div style={{ maxWidth: 1360, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontWeight: 800, fontSize: 18 }}>🧭 투자나침반 <span style={{ color: T.teal }}>주식</span></span>
+          <span style={{ fontWeight: 800, fontSize: 18 }}>🧭 {isEn ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{t('brandSuffix')}</span></span>
           <nav style={{ display: 'flex', gap: 16, fontSize: 14, alignItems: 'center' }}>
             {freshTxt && <span style={{ fontSize: 11, color: T.muted }}>🕐 {freshTxt}</span>}
-            <Link href="/scores?country=KR" style={{ color: T.teal, fontWeight: 700 }}>🇰🇷 국내</Link>
-            <Link href="/scores?country=US" style={{ color: T.teal, fontWeight: 700 }}>🇺🇸 미국</Link>
-            <Link href="/method" style={{ color: T.muted }}>방법론</Link>
-            <a href="https://navcp.xyz" style={{ color: T.muted }}>크립토 →</a>
+            <Link href="/scores?country=KR" style={{ color: T.teal, fontWeight: 700 }}>{t('navKR')}</Link>
+            <Link href="/scores?country=US" style={{ color: T.teal, fontWeight: 700 }}>{t('navUS')}</Link>
+            <Link href="/method" style={{ color: T.muted }}>{t('navMethod')}</Link>
+            <a href="https://navcp.xyz" style={{ color: T.muted }}>{t('navCrypto')}</a>
+            <LangToggle lang={lang} />
           </nav>
         </div>
       </header>
@@ -181,7 +193,7 @@ export default async function Home() {
         </div>
 
         {/* 지수 종합 */}
-        <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 22, marginBottom: 8 }}>시장 종합</div>
+        <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 22, marginBottom: 8 }}>{t("marketSummary")}</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <IdxBox label="KOSPI" d={kospi} /><IdxBox label="KOSDAQ" d={kosdaq} />
           <IdxBox label="나스닥" d={nasdaq} /><IdxBox label="S&P500" d={sp500} />
@@ -190,8 +202,8 @@ export default async function Home() {
 
         {/* 메인 두 축 — 국내 / 미국 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginTop: 22 }}>
-          <MarketPanel flag="🇰🇷" title="국내 주식" rows={kr} top={krTop} isUs={false} cov="98%" />
-          <MarketPanel flag="🇺🇸" title="해외 주식" rows={us} top={usTop} isUs={true} cov="87%" />
+          <MarketPanel flag="🇰🇷" title={t("krStocks")} rows={kr} top={krTop} isUs={false} cov="98%" />
+          <MarketPanel flag="🇺🇸" title={t("usStocks")} rows={us} top={usTop} isUs={true} cov="87%" />
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
           ※ 국내·미국은 측정 가능한 데이터가 달라 커버리지가 다릅니다. <b style={{ color: T.text }}>두 시장의 점수를 직접 비교하지 마세요.</b>
@@ -199,7 +211,7 @@ export default async function Home() {
 
         {/* 공시 피드 (국내 DART + 미국 SEC 8-K) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14, marginTop: 26 }}>
-          {[{ t: '🟢 호재 공시', list: good, c: T.green }, { t: '🔴 악재 공시', list: bad, c: T.red }].map(g => (
+          {[{ t: t('goodNews'), list: goodMix, c: T.green }, { t: t('badNews'), list: badMix, c: T.red }].map(g => (
             <div key={g.t} style={{ ...cardStyle, borderRadius: 14, padding: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 800, color: g.c, marginBottom: 10 }}>{g.t}</div>
               {g.list.length ? g.list.slice(0, 6).map((f, i) => (
@@ -259,7 +271,7 @@ export default async function Home() {
         {/* 성과 검증 — 등급별 실제 성과는 표본이 쌓인 뒤에만 공개 */}
         <div style={{ ...cardStyle, borderRadius: 16, padding: 18, marginTop: 26 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 16, fontWeight: 800 }}>📊 성과 검증</span>
+            <span style={{ fontSize: 16, fontWeight: 800 }}>{t('perfTitle')}</span>
             <span style={{ fontSize: 12, color: T.muted }}>등급별 이후 20거래일 수익률을 실측해 공개합니다</span>
           </div>
           <div style={{ marginTop: 12, height: 8, borderRadius: 5, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>

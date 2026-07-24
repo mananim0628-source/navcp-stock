@@ -2,12 +2,15 @@ import Link from 'next/link'
 import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient } from '@/lib/theme'
 import ScoresList from '@/components/ScoresList'
+import { getLang, tr } from '@/lib/i18n'
+import LangToggle from '@/components/LangToggle'
 
 export const dynamic = 'force-dynamic'
 
 // 종목 점수판 — 등급 필터 바 + 리스트. "내 분석 화면 공개" 프레임. 매수 권유 아님.
 // country 파라미터로 국내(KR)/미국(US) 전환. 미국은 측정 소스가 적어 커버리지가 낮게 표시된다(정직).
 export default async function ScoresPage({ searchParams }: { searchParams?: { country?: string } }) {
+  const lang = getLang(); const t = tr(lang); const isEn = lang === 'en'
   const country = searchParams?.country === 'US' ? 'US' : 'KR'
   const { data } = await supabase
     .from('stock_score_cache')
@@ -23,16 +26,17 @@ export default async function ScoresPage({ searchParams }: { searchParams?: { co
         <div style={{ maxWidth: 960, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, textDecoration: 'none' }}>🧭 투자나침반 <span style={{ color: T.teal }}>주식</span></Link>
           <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
-            <Link href="/scores?country=KR" style={{ color: country === 'KR' ? T.teal : T.muted, fontWeight: country === 'KR' ? 700 : 400 }}>🇰🇷 국내</Link>
-            <Link href="/scores?country=US" style={{ color: country === 'US' ? T.teal : T.muted, fontWeight: country === 'US' ? 700 : 400 }}>🇺🇸 미국</Link>
-            <Link href="/method" style={{ color: T.muted }}>방법론</Link>
-            <a href="https://navcp.xyz" style={{ color: T.muted }}>크립토 →</a>
+            <Link href="/scores?country=KR" style={{ color: country === 'KR' ? T.teal : T.muted, fontWeight: country === 'KR' ? 700 : 400 }}>{t('navKR')}</Link>
+            <Link href="/scores?country=US" style={{ color: country === 'US' ? T.teal : T.muted, fontWeight: country === 'US' ? 700 : 400 }}>{t('navUS')}</Link>
+            <Link href="/method" style={{ color: T.muted }}>{t('navMethod')}</Link>
+            <a href="https://navcp.xyz" style={{ color: T.muted }}>{t('navCrypto')}</a>
+            <LangToggle lang={lang} />
           </nav>
         </div>
       </header>
 
       <main style={{ maxWidth: 960, margin: '0 auto', padding: '32px 20px' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800 }}>{country === 'US' ? '미국 종목 7팩터 점수' : '국내 종목 7팩터 점수'}</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800 }}>{country === 'US' ? t('scoresTitleUS') : t('scoresTitleKR')}</h1>
         {country === 'US' && (
           <p style={{ fontSize: 12.5, color: T.amber, marginTop: 8, lineHeight: 1.6, border: `1px solid ${T.cardBr}`, borderRadius: 10, padding: 10 }}>
             ⓘ 미국판은 <b>커버리지 87%</b>입니다. 수급 팩터(13점)는 미국에 <b>외국인·기관 순매수 구분 개념 자체가 없어</b> 비워두고,
