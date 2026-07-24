@@ -4,6 +4,8 @@ import { T, bgGradient, cardStyle, gradeColor } from '@/lib/theme'
 import { getLang } from '@/lib/i18n'
 import LangToggle from '@/components/LangToggle'
 import JournalNote from '@/components/JournalNote'
+import TradeCalendar from '@/components/TradeCalendar'
+import RecentActivity from '@/components/RecentActivity'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: '매매일지 — 투자나침반 주식' }
@@ -90,7 +92,7 @@ export default async function Journal() {
   return (
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ maxWidth: 1360, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text }}>🧭 {en ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{en ? 'Stocks' : '주식'}</span></Link>
           <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
             <Link href="/dashboard" style={{ color: T.muted }}>{en ? 'Dashboard' : '대시보드'}</Link>
@@ -101,7 +103,8 @@ export default async function Journal() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 60px' }}>
+      <div className="shell">
+       <main className="shell-main">
         <h1 style={{ fontSize: 23, fontWeight: 900 }}>{en ? 'Simulated Trade Journal' : '모의매매 일지'}</h1>
 
         {/* 프레임 고지 — 가장 먼저 읽히게 */}
@@ -111,6 +114,11 @@ export default async function Journal() {
               ? <>These are <b style={{ color: T.text }}>simulated records</b>: the rule bought and sold on paper so we can measure whether the score actually works. <b style={{ color: T.text }}>No real orders are placed and this is not a buy or sell signal.</b> Entry uses the closing price on the day the rule triggered; exits are judged only from candles after entry, so nothing is decided with hindsight.</>
               : <>이 화면은 <b style={{ color: T.text }}>시뮬레이션 기록</b>입니다. 우리 점수가 실제로 유효한지 측정하려고 규칙이 가상으로 사고팔았을 뿐입니다. <b style={{ color: T.text }}>실제 주문은 내지 않으며 매수·매도 신호가 아닙니다.</b> 진입가는 판정일 종가를 쓰고, 청산은 진입 이후 실제 캔들로만 판정합니다 — 결과를 미리 알고 유리하게 고르지 않습니다.</>}
           </p>
+        </div>
+
+        {/* 손익 달력 — 상단 배치(가장 먼저 보이는 자리) */}
+        <div style={{ marginTop: 14 }}>
+          <TradeCalendar trades={closed.map(t => ({ symbol: t.symbol, name: t.name, exit_date: t.exit_date, pnl_pct: t.pnl_pct, country: t.country }))} lang={lang} />
         </div>
 
         {/* 집계 — 표본 부족이면 수치를 앞세우지 않는다 */}
@@ -151,7 +159,15 @@ export default async function Journal() {
             ? '⚠️ For information, analysis and education only. Simulated records do not represent actual trading results and do not guarantee future returns. All investment decisions and their consequences are your own. The operator provides no paid advisory, signal-calling or discretionary management services.'
             : '⚠️ 정보 제공·분석·교육 목적입니다. 모의 기록은 실제 매매 결과가 아니며 미래 수익을 보장하지 않습니다. 투자 판단과 책임은 본인에게 있습니다. 운영자는 대가를 받는 투자자문·리딩·투자일임을 제공하지 않습니다.'}
         </p>
-      </main>
+       </main>
+       <aside className="chat-rail rail-auto">
+         <RecentActivity trades={trades.map(t => ({
+           id: t.id, symbol: t.symbol, name: t.name, country: t.country, status: t.status,
+           entry_date: t.entry_date, entry_score: t.entry_score,
+           exit_date: t.exit_date, exit_kind: t.exit_kind, pnl_pct: t.pnl_pct,
+         }))} lang={lang} />
+       </aside>
+      </div>
     </div>
   )
 }
