@@ -17,3 +17,8 @@ button { font-family: inherit; }
   .shell { flex-direction: column; }
   .chat-rail { width: 100%; position: static; height: 520px; }
 }
+
+/* 숫자 가독성 — 동폭 숫자(tabular numerals)로 자릿수 정렬(대시보드 표준 규칙) */
+body { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+/* 대비 확보: 저대비 텍스트 금지 원칙에 따라 muted 최소 대비 유지 */
+a { text-decoration: none; }
