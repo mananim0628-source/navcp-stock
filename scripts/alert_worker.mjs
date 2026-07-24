@@ -112,10 +112,11 @@ const RANK = { 경계: 0, 주의: 1, 중립: 2, 우호: 3, 강한우호: 4 }
   }
   const nodemailer = await import('nodemailer').catch(() => null)
   if (!nodemailer) { console.log('[alert] nodemailer 미설치 — npm i nodemailer 후 재실행'); return }
+  const port = Number(process.env.SMTP_PORT || 587)
   const tx = nodemailer.default.createTransport({
-    host: SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT || 587) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    host: SMTP_HOST, port, secure: port === 465,
+    // Gmail 앱 비밀번호는 'xxxx xxxx xxxx xxxx' 형태로 복사되는 경우가 많다 → 공백 제거
+    auth: { user: SMTP_USER, pass: String(SMTP_PASS).replace(/\s/g, '') },
   })
 
   const pending = await rest('stock_alert_outbox?select=*&status=eq.pending&order=created_at&limit=200')
