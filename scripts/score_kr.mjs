@@ -245,7 +245,10 @@ function computeFinancial(fr, price) {
   if (per != null) val += per < 10 ? 2 : per < 20 ? 1.5 : per < 40 ? 1 : 0.5
   if (pbr != null) val += pbr < 1 ? 2 : pbr < 2 ? 1.5 : pbr < 4 ? 1 : 0.5
   s += Math.round(val)
-  return { score: Math.max(0, Math.min(20, Math.round(s))), per: per ? +per.toFixed(1) : null, pbr: pbr ? +pbr.toFixed(2) : null, roe: fr.roe, grs: fr.grs }
+  // 표시용 정직성: EPS가 0에 가까우면 PER이 수백~수만으로 튀어 무의미 → 표시는 null('산출 불가').
+  // 점수(val)는 위에서 이미 최저 구간으로 반영됐으므로 그대로 둔다(값을 지어내지 않음).
+  const perShow = per != null && per > 0 && per <= 300 ? +per.toFixed(1) : null
+  return { score: Math.max(0, Math.min(20, Math.round(s))), per: perShow, pbr: pbr ? +pbr.toFixed(2) : null, roe: fr.roe, grs: fr.grs }
 }
 
 function rsi14(closes) {
