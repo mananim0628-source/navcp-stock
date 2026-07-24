@@ -226,9 +226,19 @@ async function dartAI(code) {
 // 재무비율(장 무관·안정) — 성장률·ROE·부채·EPS·BPS. 재무 팩터(20)의 정식 소스.
 async function financialRatio(code, tok) {
   const j = await kisGet(`/uapi/domestic-stock/v1/finance/financial-ratio?FID_DIV_CLS_CODE=0&fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`, tok, 'FHKST66430300')
-  const o = j && Array.isArray(j.output) ? j.output[0] : null
+  const rows = j && Array.isArray(j.output) ? j.output : null
+  const o = rows?.[0]
   if (!o) return null
-  return { grs: Number(o.grs), opInc: Number(o.bsop_prfi_inrt), roe: Number(o.roe_val), eps: Number(o.eps), bps: Number(o.bps), debt: Number(o.lblt_rate) }
+  // ⚠️ output[0]은 분기 행일 수 있고, 그 EPS는 **분기 누적**인데 ROE는 연환산이다(실측: 기아 배율 4.02, 두산 248).
+  // 분기 EPS로 PER을 내면 최대 4배 과대 → PER용 EPS는 **최신 연간 행(stac_yymm이 12월)**을 쓴다(trailing PER).
+  // BPS(장부가·시점값)와 ROE·성장률·부채비율은 최신 행 유지 — 전 종목이 같은 기준이라 비교 가능.
+  const annual = rows.find(r => String(r.stac_yymm || '').endsWith('12') && Number(r.eps) > 0)
+  return {
+    grs: Number(o.grs), opInc: Number(o.bsop_prfi_inrt), roe: Number(o.roe_val),
+    eps: annual ? Number(annual.eps) : Number(o.eps),
+    epsPeriod: annual ? annual.stac_yymm : o.stac_yymm,
+    bps: Number(o.bps), debt: Number(o.lblt_rate),
+  }
 }
 function computeFinancial(fr, price) {
   if (!fr) return null
