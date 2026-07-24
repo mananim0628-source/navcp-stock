@@ -209,7 +209,6 @@ export default async function Home() {
             <Link href="/scores?country=US" style={{ color: T.teal, fontWeight: 700 }}>{t('navUS')}</Link>
             <Link href="/method" style={{ color: T.muted }}>{t('navMethod')}</Link>
             <Link href="/my" style={{ color: T.muted }}>{isEn ? 'My' : '내 정보'}</Link>
-            <a href="https://navcp.xyz" style={{ color: T.muted }}>{t('navCrypto')}</a>
             <LangToggle lang={lang} />
           </nav>
         </div>

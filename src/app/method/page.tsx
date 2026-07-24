@@ -76,7 +76,7 @@ export default function Method() {
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>※ 주식판 임계선은 KIS 데이터 백테스트로 재보정 예정(현재 크립토 기준 임시 적용).</p>
+        <p style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>※ 등급 임계선은 축적 중인 실측 데이터로 재보정할 예정입니다(현재는 잠정값).</p>
 
         {/* 커버리지 */}
         <h2 style={{ fontSize: 19, fontWeight: 800, marginTop: 34 }}>커버리지 — 왜 표시하나요?</h2>

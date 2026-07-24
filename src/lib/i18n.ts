@@ -18,7 +18,6 @@ const D = {
   navKR: { ko: '🇰🇷 국내', en: '🇰🇷 Korea' },
   navUS: { ko: '🇺🇸 미국', en: '🇺🇸 US' },
   navMethod: { ko: '방법론', en: 'Method' },
-  navCrypto: { ko: '크립토 →', en: 'Crypto →' },
   privacy: { ko: '개인정보 처리방침', en: 'Privacy Policy' },
   updatedAgoMin: { ko: '분 전 갱신', en: 'min ago' },
   updatedAgoHour: { ko: '시간 전 갱신', en: 'h ago' },
