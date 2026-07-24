@@ -1,8 +1,8 @@
 // 미국 종목 7팩터 스코어링 — 토스(시세·캔들·종목정보) + SEC EDGAR(재무) + 자체 거시.
 // ⚠️ 정직성 원칙(크립토 ZAMA 교훈): 측정 못 한 팩터는 추정하지 않고 naFactors로 표기하고,
 //    total은 **측정된 배점만으로 정규화**한다. coverage를 반드시 함께 저장.
-// v1 측정: 거시12 · 재무20 · 기술20 · 전략5 = 57%.  미측정: 수급13(미국은 외국인/기관 구분 개념 부재)
-//          · 공매도15(FINRA 격주 파일 별도) · 공시15(8-K 방향성 분류는 신뢰도 미확보 → 지어내지 않음)
+// v2 측정: 거시12 · 재무20 · 공시15 · 공매도15 · 기술20 · 전략5 = 87%.
+//          미측정: 수급13 — 미국은 '외국인/기관 순매수' 구분 개념 자체가 없어 대체 불가 → 정직하게 비움.
 // ⚠️ 토스 주문(/orders) 계열은 규제상(투자일임·자동매매 배제) 절대 사용하지 않는다.
 
 const TOSS_ID = process.env.TOSS_CLIENT_ID, TOSS_SECRET = process.env.TOSS_CLIENT_SECRET
@@ -103,6 +103,102 @@ async function secFinancials(ticker, price, shares) {
   const debt = (lia != null && eq != null && eq > 0) ? (lia / eq) * 100 : null
   const grs = (rev != null && rev0 != null && rev0 > 0) ? ((rev - rev0) / rev0) * 100 : null
   return { eps, bps, per, pbr, roe, debt, grs }
+}
+
+// ───────── FINRA RegSHO 일별 공매도 (무료·인증 불필요) ─────────
+// 파일 1개에 전 종목이 들어 있어 **날짜별 1회 요청으로 유니버스 전체**를 채운다.
+// 포맷: Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market → 공매도비중 = Short/Total
+// 국내판 ssts_vol_rlim(공매도 거래량 비중)과 동일 개념 → 배점·구간 동일 적용 가능.
+async function finraShortMap(days = 20) {
+  const map = new Map()   // symbol -> [{d, ratio}] 최신순
+  const today = new Date()
+  let got = 0
+  for (let i = 1; i <= days * 2 && got < days; i++) {
+    const t = new Date(today.getTime() - i * 86400000)
+    const dow = t.getUTCDay()
+    if (dow === 0 || dow === 6) continue                       // 주말 스킵
+    const ymd = t.toISOString().slice(0, 10).replace(/-/g, '')
+    let txt
+    try {
+      const r = await fetch(`https://cdn.finra.org/equity/regsho/daily/CNMSshvol${ymd}.txt`)
+      if (!r.ok) continue
+      txt = await r.text()
+    } catch { continue }
+    got++
+    for (const line of txt.split('\n')) {
+      const p = line.split('|')
+      if (p.length < 5 || p[0] === 'Date') continue
+      const sym = p[1], sv = Number(p[2]), tv = Number(p[4])
+      if (!sym || !(tv > 0) || !Number.isFinite(sv)) continue
+      if (!map.has(sym)) map.set(sym, [])
+      map.get(sym).push({ d: ymd, ratio: (sv / tv) * 100 })
+    }
+    await sleep(120)
+  }
+  for (const arr of map.values()) arr.sort((a, b) => b.d.localeCompare(a.d))   // 최신순
+  console.log(`[US] FINRA 공매도 ${got}일치 · ${map.size}종목`)
+  return map
+}
+// ⚠️ FINRA ShortVolume은 '공매도 잔고'가 아니라 **시장조성자 헤지가 포함된 short-flagged 거래량**이다.
+//    미국은 40% 내외가 정상 수준이라, 국내 ssts_vol_rlim 기준(15% 미만=우호)을 그대로 쓰면
+//    전 종목이 최저 구간으로 몰린다. → **미국 유니버스 내 상대 백분위**로 판정한다.
+function computeDerivative(list, cuts) {
+  if (!list || list.length < 5 || !cuts) return null
+  const r = list.map(x => x.ratio)
+  const avg = mean(r)
+  const recent = mean(r.slice(0, Math.min(5, r.length)))
+  const older = r.length >= 10 ? mean(r.slice(5, 10)) : avg
+  // 낮을수록 우호: 유니버스 하위 25%=9, 50%=7, 75%=5, 그 위=3
+  let s = avg <= cuts.p25 ? 9 : avg <= cuts.p50 ? 7 : avg <= cuts.p75 ? 5 : 3
+  s += recent < older ? 4 : recent > older * 1.15 ? 0 : 2       // 감소 추세 가점
+  return { score: Math.max(0, Math.min(15, s)), avg: +avg.toFixed(2) }
+}
+// 유니버스 종목들의 평균 공매도 비중 분포에서 사분위 임계 산출
+function shortCuts(universe, map) {
+  const avgs = universe.map(u => { const l = map.get(u.symbol); return l && l.length >= 5 ? mean(l.map(x => x.ratio)) : null })
+    .filter(Number.isFinite).sort((a, b) => a - b)
+  if (avgs.length < 8) return null
+  const at = p => avgs[Math.min(avgs.length - 1, Math.floor(avgs.length * p))]
+  return { p25: at(0.25), p50: at(0.5), p75: at(0.75) }
+}
+
+// ───────── SEC 8-K 공시 (공식 item 코드 기반) ─────────
+// ⚠️ 8-K item 코드는 SEC가 뜻을 명시한 공식 분류다(임의 해석·환각 아님).
+//    다만 **부정 신호만 명확**하고 긍정은 약하다(1.01 계약 체결 정도) → 비대칭임을 감안해
+//    기본 중립에서 시작해 명백한 악재만 감점한다. 5.02(임원 변동)는 일상적 인사가 많아 제외.
+const NEG_ITEMS = {
+  '1.03': 3,   // 파산·법정관리
+  '3.01': 3,   // 상장폐지 통지·상장요건 미달
+  '4.02': 3,   // 과거 재무제표 신뢰 불가(비신뢰 선언)
+  '2.06': 2,   // 자산 손상
+  '2.04': 2,   // 채무 조기상환 촉발 사건
+  '2.05': 1,   // 사업 철수·구조조정 비용
+  '4.01': 1,   // 회계법인 교체
+}
+const POS_ITEMS = { '1.01': 2 }   // 중요 계약 체결 (국내 '단일판매·공급계약'에 대응)
+async function secDisclosure(ticker) {
+  const cik = await cikOf(ticker)
+  if (!cik) return null
+  let rec
+  try {
+    const r = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers: SEC_UA })
+    if (!r.ok) return null
+    rec = (await r.json())?.filings?.recent
+  } catch { return null }
+  if (!rec?.form) return null
+  const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10)   // 최근 120일
+  let s = 9, pos = 0, neg = 0
+  const posNames = [], negNames = []
+  for (let i = 0; i < rec.form.length; i++) {
+    if (rec.form[i] !== '8-K') continue
+    const dt = rec.filingDate[i]
+    if (!dt || dt < cutoff) continue
+    for (const it of String(rec.items[i] || '').split(',').map(x => x.trim())) {
+      if (NEG_ITEMS[it] != null) { neg++; if (neg <= 3) s -= NEG_ITEMS[it]; if (negNames.length < 2) negNames.push({ dt: dt.replace(/-/g, ''), nm: `8-K ${it}` }) }
+      else if (POS_ITEMS[it] != null) { pos++; if (pos <= 3) s += POS_ITEMS[it]; if (posNames.length < 2) posNames.push({ dt: dt.replace(/-/g, ''), nm: `8-K ${it} 중요계약` }) }
+    }
+  }
+  return { score: Math.max(0, Math.min(15, s)), pos, neg, posNames, negNames }
 }
 
 // ───────── 팩터 계산 (국내판과 동일 배점·구간 → 비교 가능) ─────────
@@ -218,15 +314,15 @@ async function candles(sym) {
 
 // ───────── 스코어링 (측정분만 정규화) ─────────
 const CAPS = { macro: 12, supply: 13, financial: 20, ai: 15, derivative: 15, technical: 20, strategy: 5 }
-function scoreStock({ price, chg, macro, fin, tech }) {
+function scoreStock({ price, chg, macro, fin, tech, deriv, disc }) {
   const na = []
   let pts = 0, cap = 0
   const add = (k, v) => { if (v == null) { na.push(k); return null } pts += v; cap += CAPS[k]; return v }
   const m = add('macro', macro)
   add('supply', null)              // 미국: 외국인·기관 구분 개념 부재 → 측정 불가
   const f = add('financial', fin?.score ?? null)
-  add('ai', null)                  // 8-K 방향성 분류 신뢰도 미확보 → 지어내지 않음
-  add('derivative', null)          // FINRA 공매도 미연동
+  const a = add('ai', disc?.score ?? null)          // SEC 8-K 공식 item 코드 기반
+  const dv = add('derivative', deriv?.score ?? null) // FINRA RegSHO 공매도 비중
   const t = add('technical', tech?.score ?? null)
   // 전략: 기술·재무가 함께 우호적일 때만 가점(둘 다 측정된 경우에만 산정)
   const strat = (t != null && f != null) ? ((t >= 13 ? 3 : t >= 9 ? 2 : 1) + (f >= 14 ? 2 : 1)) : null
@@ -236,10 +332,12 @@ function scoreStock({ price, chg, macro, fin, tech }) {
   const total = cap > 0 ? Math.round(pts / cap * 100) : 0
   return {
     scores: {
-      total, macro: m, supply: null, financial: f, ai: null, derivative: null,
+      total, macro: m, supply: null, financial: f, ai: a, derivative: dv,
       technical: t, strategy: strat != null ? Math.min(5, strat) : null, coverage,
       per: fin?.per ?? null, pbr: fin?.pbr ?? null, roe: fin?.roe ?? null, grs: fin?.grs ?? null,
-      short_ratio: null, ai_disc: null, ai_pos: null, ai_neg: null,
+      short_ratio: deriv?.avg ?? null,
+      ai_disc: disc ? `8-K 호재 ${disc.pos}·악재 ${disc.neg} (최근 120일)` : null,
+      ai_pos: disc?.posNames ?? null, ai_neg: disc?.negNames ?? null,
       price, chg, sector: null,
       rsi: tech?.rsi ?? null, ma5: tech?.ma5 ?? null, ma20: tech?.ma20 ?? null, ma60: tech?.ma60 ?? null,
       support: tech?.support ?? null, resistance: tech?.resistance ?? null,
@@ -266,6 +364,9 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const now = new Date().toISOString(), today = now.slice(0, 10)
   const macro = await computeMacro()
   const UNIVERSE = await fetchUniverse()
+  const shortMap = await finraShortMap(20)
+  const cuts = shortCuts(UNIVERSE, shortMap)
+  if (cuts) console.log(`[US] 공매도 임계(유니버스 상대) p25=${cuts.p25.toFixed(1)}% p50=${cuts.p50.toFixed(1)}% p75=${cuts.p75.toFixed(1)}%`)
   console.log(`[US] 유니버스 ${UNIVERSE.length}종목 · 거시점수 ${macro ?? 'n/a'}`)
   const history = []
   let ok = 0
@@ -277,10 +378,12 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const prev = rows && rows.length >= 2 ? rows[rows.length - 2].c : null
       const chg = prev ? +(((price - prev) / prev) * 100).toFixed(2) : null
       const fin = computeFinancial(await secFinancials(s.symbol, price, s.shares), price)
-      const { scores, coverage } = scoreStock({ price, chg, macro, fin, tech })
+      const deriv = computeDerivative(shortMap.get(s.symbol), cuts)
+      const disc = await secDisclosure(s.symbol)
+      const { scores, coverage } = scoreStock({ price, chg, macro, fin, tech, deriv, disc })
       await upsert({ symbol: s.symbol, name: s.name, market: s.market, country: 'US', scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.symbol, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price, country: 'US', snapshot_at: now })
-      console.log(`  ${String(s.symbol).padEnd(6)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage * 100)}% · PER ${scores.per} · PBR ${scores.pbr} · ROE ${scores.roe}`)
+      console.log(`  ${String(s.symbol).padEnd(6)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage * 100)}% · PER ${scores.per} · 공매도 ${scores.short_ratio}% · 8-K(${disc?.pos ?? '-'}/${disc?.neg ?? '-'})`)
       ok++
     } catch (e) { console.log('  err', s.symbol, String(e.message).slice(0, 70)) }
     await sleep(400)   // 토스 + SEC 레이트리밋 여유
