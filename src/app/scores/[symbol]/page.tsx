@@ -21,12 +21,14 @@ const FACTORS: { key: string; label: string; cap: number; hint: string }[] = [
   { key: 'strategy', label: '전략', cap: 5, hint: '축 정렬' },
 ]
 
-const won = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('ko-KR') + '원')
+// 통화 표기: 국내=원, 미국=$
+const money = (v: number | null | undefined, us: boolean) =>
+  v == null ? '—' : us ? '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }) : Number(v).toLocaleString('ko-KR') + '원'
 
 export default async function StockDetail({ params }: { params: { symbol: string } }) {
   const [{ data }, { data: peers }, { data: sent }] = await Promise.all([
     supabase.from('stock_score_cache').select('*').eq('symbol', params.symbol).limit(1).single(),
-    supabase.from('stock_score_cache').select('symbol,name,scores'),           // 퍼센타일·동종업계 비교용 유니버스
+    supabase.from('stock_score_cache').select('symbol,name,scores,country'),   // 퍼센타일·동종업계 비교용 유니버스(같은 국가끼리)
     supabase.from('stock_chat_sentiment').select('*').eq('symbol', params.symbol).maybeSingle(),
   ])
   if (!data) return notFound()
@@ -41,8 +43,10 @@ export default async function StockDetail({ params }: { params: { symbol: string
   const rsi = num(sc.rsi), ma20 = num(sc.ma20), ma60 = num(sc.ma60)
 
   // 퍼센타일 — 유니버스 대비 상위 몇 %인지 (Stockopedia 방식)
-  type Peer = { symbol: string; name: string | null; scores: Record<string, any> }
-  const peerRows = (peers || []) as Peer[]
+  type Peer = { symbol: string; name: string | null; scores: Record<string, any>; country?: string }
+  const isUS = (r as any).country === 'US'
+  const won = (v: number | null | undefined) => money(v, isUS)
+  const peerRows = ((peers || []) as Peer[]).filter(p => ((p as any).country || 'KR') === ((r as any).country || 'KR'))
   const allTotals = peerRows.map(p => Number(p?.scores?.total)).filter(Number.isFinite)
   const below = allTotals.filter(t => t < total).length
   const pctile = allTotals.length > 1 ? Math.round((below / allTotals.length) * 100) : null

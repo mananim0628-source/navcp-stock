@@ -23,7 +23,7 @@ type Disc = { dt?: string; nm?: string }
 
 export default async function Home() {
   const [{ data: allRows }, kospi, kosdaq, nasdaq, sp500, vix, usdkrw] = await Promise.all([
-    supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').order('cached_at', { ascending: false }).limit(120),
+    supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').eq('country', 'KR').order('cached_at', { ascending: false }).limit(120),
     idx('^KS11'), idx('^KQ11'), idx('^IXIC'), idx('^GSPC'), idx('^VIX'), idx('KRW=X'),
   ])
   const rows = (allRows || []) as StockScore[]
