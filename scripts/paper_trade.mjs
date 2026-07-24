@@ -32,6 +32,12 @@ const SEED = Number(process.env.PT_SEED || 10_000_000)   // 시뮬레이션 전�
 const RISK_PCT = Number(process.env.PT_RISK || 1.0)      // 1종목당 감수 위험(시드 대비 %)
 const MAX_WEIGHT = Number(process.env.PT_MAXW || 20)     // 1종목 비중 상한(%)
 const PORT_HEAT = Number(process.env.PT_HEAT || 6)       // 전체 열려있는 위험 합 상한(%)
+// ── 현금 관리 — 현물이라 손절만이 답이 아니다. 급락 대응·물타기 여력으로 현금 쿠션을 남긴다.
+const MAX_INVESTED = Number(process.env.PT_MAXINV || 80) // 신규 진입은 총투입 80%까지만(현금 20% 보존)
+// 물타기(추가매수): 보유 종목이 진입가 대비 크게 하락 + 점수가 여전히 유효하면 1회 추가 매수.
+const ADD_ENABLED = process.env.PT_ADD !== '0'
+const ADD_DROP = Number(process.env.PT_ADDDROP || 8)     // 진입가 대비 -8% 이상 하락 시 후보
+const ADD_MAX = 1                                        // 종목당 물타기 최대 횟수
 
 // 종합 진입 판정 — 점수 문턱을 넘고, 아래 '가점 근거'가 2개 이상이면 진입.
 // 거시(시장 국면)·수급·공시(악재 없음)·기술(추세)·상대강도를 두루 본다.
@@ -162,22 +168,67 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     closed++
   }
 
-  // ── 2) 신규 진입 판정 — 종합 근거 기반(점수 하나로 자르지 않음) + 거시 국면 반영
-  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct&status=eq.open')
-  const room = Math.max(0, MAX_OPEN - stillOpenRows.length)
-  const openSyms = new Set(stillOpenRows.map(r => r.symbol))
-  let openHeat = stillOpenRows.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)   // 현재 열린 위험 합
-
-  // 거시 국면 — 야후 지수로 KR/US 각각 판정(우호면 진입에 가점)
+  // 거시 국면 — 야후 지수로 KR/US 각각 판정(물타기·신규진입 공용)
   const idxUp = async sym => {
     try {
       const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=3mo&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } })
       const c = ((await r.json())?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(Number.isFinite)
       if (c.length < 25) return false
-      return c[c.length - 1] > c.slice(-20).reduce((a, b) => a + b, 0) / 20   // 20일선 위
+      return c[c.length - 1] > c.slice(-20).reduce((a, b) => a + b, 0) / 20
     } catch { return false }
   }
-  const macroKR = await idxUp('^KS11'), macroUS = await idxUp('^GSPC')
+  const macroPre = { kr: await idxUp('^KS11'), us: await idxUp('^GSPC') }
+
+  // ── 1.5) 물타기(추가매수) — 현물 특성상 손절만이 답은 아니다.
+  //   보유 종목이 진입가 대비 -ADD_DROP% 이상 하락했지만 **점수가 여전히 유효**하면,
+  //   현금 쿠션 범위에서 1회 추가 매수해 평단을 낮춘다. 손절선은 새 평단 기준으로 재설정.
+  const openFull = await rest('stock_paper_trade?select=*&status=eq.open')
+  let usedNow = openFull.reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)   // 현재 총투입%
+  let added = 0
+  if (ADD_ENABLED) {
+    for (const t of openFull) {
+      if ((t.add_count || 0) >= ADD_MAX) continue
+      if (usedNow >= MAX_INVESTED) break
+      const row = byS.get(t.symbol); if (!row) continue
+      const sc = row.scores || {}
+      const cur = Number(sc.price); if (!(cur > 0)) continue
+      const base = Number(t.avg_price || t.entry_price)
+      const drop = ((cur - base) / base) * 100
+      if (drop > -ADD_DROP) continue                          // 아직 물탈 만큼 안 빠짐
+      // 점수가 여전히 유효해야 물탄다(추세 꺾였으면 손절이 맞음)
+      const macroFav = t.country === 'US' ? macroPre.us : macroPre.kr
+      if (!entrySignal(sc, macroFav)) continue
+      // 추가 비중 = 기존 비중의 절반, 현금 여유로 캡
+      let addW = Math.min(Number(t.weight_pct) / 2, MAX_INVESTED - usedNow, MAX_WEIGHT - Number(t.weight_pct))
+      if (addW < 1) continue
+      addW = +addW.toFixed(2)
+      const oldW = Number(t.weight_pct), newW = +(oldW + addW).toFixed(2)
+      const newAvg = +((base * oldW + cur * addW) / newW).toFixed(2)   // 비중가중 평단
+      const a = Number(sc.atr14) || (base * 0.03)
+      const newStop = +(newAvg - ATR_STOP * a).toFixed(2)
+      const newTarget = +(newAvg + ATR_TARGET * a).toFixed(2)
+      const stopDistPct = ((newAvg - newStop) / newAvg) * 100
+      await rest(`stock_paper_trade?id=eq.${t.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          weight_pct: newW, avg_price: newAvg, entry_price: newAvg,   // 이후 손익은 평단 기준
+          stop_price: newStop, target_price: newTarget,
+          risk_pct: +(newW * stopDistPct / 100).toFixed(2),
+          add_count: (t.add_count || 0) + 1,
+          entry_reason: `${t.entry_reason} || [물타기 ${(t.add_count||0)+1}회] ${cur} 매수(${drop.toFixed(1)}% 하락, 점수 유효) → 평단 ${newAvg}`,
+        }),
+      })
+      usedNow += addW; added++
+    }
+  }
+
+  // ── 2) 신규 진입 판정 — 종합 근거 기반(점수 하나로 자르지 않음) + 거시 국면 반영
+  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct,weight_pct&status=eq.open')
+  const room = Math.max(0, MAX_OPEN - stillOpenRows.length)
+  const openSyms = new Set(stillOpenRows.map(r => r.symbol))
+  let openHeat = stillOpenRows.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)   // 현재 열린 위험 합
+
+  const macroKR = macroPre.kr, macroUS = macroPre.us
 
   const scored = []
   for (const r of cache) {
@@ -201,7 +252,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   for (const { r, sc, reasons } of scored) {
     if (news.length >= room) break
     if (openHeat >= PORT_HEAT) break                     // 전체 위험 한도 도달 → 신규 중단
-    if (usedCapital >= 99) break                         // 현금 소진 → 신규 중단
+    if (usedCapital >= MAX_INVESTED) break               // 현금 쿠션 보존 → 신규 중단(물타기 여력 확보)
     const price = Number(sc.price), a = Number(sc.atr14)
     const stop = +(price - ATR_STOP * a).toFixed(2)
     // 리스크 기반 비중: (시드 × 위험%) ÷ (손절까지 하락률). 상한·잔여히트·잔여현금으로 캡.
@@ -213,7 +264,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     const heatRoom = Math.max(0, PORT_HEAT - openHeat)
     if (weight * stopDistPct / 100 > heatRoom) weight = heatRoom / stopDistPct * 100
     // 남은 현금으로 캡 (자본 100% 초과 방지)
-    const cashRoom = Math.max(0, 100 - usedCapital)
+    const cashRoom = Math.max(0, MAX_INVESTED - usedCapital)
     if (weight > cashRoom) weight = cashRoom
     weight = +weight.toFixed(2)
     if (weight < 1) continue                             // 너무 작은 비중은 건너뜀
@@ -245,5 +296,6 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     opened = r.ok ? (await r.json()).length : 0
   }
 
-  console.log(`[paper] ${today} · 청산 ${closed} · 신규 ${opened} (보유 ${stillOpenRows.length - closed + opened}/${MAX_OPEN}) · 거시 KR:${macroKR ? '우호' : '주의'}/US:${macroUS ? '우호' : '주의'} · 열린위험 ${openHeat.toFixed(1)}%/${PORT_HEAT}% · 규칙 ${RULE}`)
+  const finalInvested = usedNow + news.reduce((a, n) => a + (Number(n.weight_pct) || 0), 0)
+  console.log(`[paper] ${today} · 청산 ${closed} · 물타기 ${added} · 신규 ${opened} (보유 ${stillOpenRows.length - closed + opened}/${MAX_OPEN}) · 투입 ${finalInvested.toFixed(0)}%/현금 ${(100 - finalInvested).toFixed(0)}% · 거시 KR:${macroKR ? '우호' : '주의'}/US:${macroUS ? '우호' : '주의'} · 규칙 ${RULE}`)
 })()
