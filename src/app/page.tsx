@@ -37,6 +37,11 @@ export default async function Home() {
   const kr = (krData || []) as StockScore[]
   const us = (usData || []) as StockScore[]
 
+  // 커버리지는 하드코딩하지 않고 **실제 적재값 평균**으로 표기(표시와 데이터가 어긋나지 않게)
+  const avgCov = (rows: StockScore[]) => {
+    const v = rows.map(r => Number(r.coverage)).filter(Number.isFinite)
+    return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 100) + '%' : '—'
+  }
   const byTotal = (rows: StockScore[]) => [...rows].sort((a, b) => num(b.scores?.total) - num(a.scores?.total))
   const krTop = byTotal(kr).slice(0, 5), usTop = byTotal(us).slice(0, 5)
   const movers = (rows: StockScore[], up: boolean) => [...rows]
@@ -202,8 +207,8 @@ export default async function Home() {
 
         {/* 메인 두 축 — 국내 / 미국 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginTop: 22 }}>
-          <MarketPanel flag="🇰🇷" title={t("krStocks")} rows={kr} top={krTop} isUs={false} cov="98%" />
-          <MarketPanel flag="🇺🇸" title={t("usStocks")} rows={us} top={usTop} isUs={true} cov="87%" />
+          <MarketPanel flag="🇰🇷" title={t("krStocks")} rows={kr} top={krTop} isUs={false} cov={avgCov(kr)} />
+          <MarketPanel flag="🇺🇸" title={t("usStocks")} rows={us} top={usTop} isUs={true} cov={avgCov(us)} />
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
           ※ 국내·미국은 측정 가능한 데이터가 달라 커버리지가 다릅니다. <b style={{ color: T.text }}>두 시장의 점수를 직접 비교하지 마세요.</b>

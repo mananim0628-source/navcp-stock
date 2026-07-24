@@ -19,6 +19,8 @@ export default async function ScoresPage({ searchParams }: { searchParams?: { co
     .order('scores->total', { ascending: false })
     .limit(300)
   const rows = (data || []) as StockScore[]
+  const covList = rows.map(r => Number(r.coverage)).filter(Number.isFinite)
+  const avgCov = covList.length ? Math.round((covList.reduce((a, b) => a + b, 0) / covList.length) * 100) : null
 
   return (
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
@@ -39,7 +41,7 @@ export default async function ScoresPage({ searchParams }: { searchParams?: { co
         <h1 style={{ fontSize: 24, fontWeight: 800 }}>{country === 'US' ? t('scoresTitleUS') : t('scoresTitleKR')}</h1>
         {country === 'US' && (
           <p style={{ fontSize: 12.5, color: T.amber, marginTop: 8, lineHeight: 1.6, border: `1px solid ${T.cardBr}`, borderRadius: 10, padding: 10 }}>
-            ⓘ 미국판은 <b>커버리지 87%</b>입니다. 수급 팩터(13점)는 미국에 <b>외국인·기관 순매수 구분 개념 자체가 없어</b> 비워두고,
+            ⓘ 미국판 평균 <b>커버리지 {avgCov ?? '—'}%</b>입니다. 수급 팩터(13점)는 미국에 <b>외국인·기관 순매수 구분 개념 자체가 없어</b> 비워두고,
             <b>측정된 팩터만으로 정규화</b>합니다. 공매도는 FINRA 기준이 국내와 달라(시장조성자 헤지 포함) <b>미국 유니버스 내 상대 순위</b>로 평가해요.
             국내 점수와 직접 비교하지 마세요.
           </p>
