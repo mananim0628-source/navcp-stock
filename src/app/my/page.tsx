@@ -23,6 +23,7 @@ export default async function MyPage() {
         <div style={{ maxWidth: 780, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text }}>🧭 {en ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{en ? 'Stocks' : '주식'}</span></Link>
           <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
+            <Link href="/dashboard" style={{ color: T.muted }}>{lang === 'en' ? 'Dashboard' : '대시보드'}</Link>
             <Link href="/scores?country=KR" style={{ color: T.muted }}>{en ? 'Korea' : '국내'}</Link>
             <Link href="/scores?country=US" style={{ color: T.muted }}>{en ? 'US' : '미국'}</Link>
             <LangToggle lang={lang} />

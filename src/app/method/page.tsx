@@ -32,6 +32,7 @@ export default function Method() {
         <div style={{ maxWidth: 860, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text, textDecoration: 'none' }}>🧭 투자나침반 <span style={{ color: T.teal }}>주식</span></Link>
           <nav style={{ display: 'flex', gap: 18, fontSize: 14 }}>
+            <Link href="/dashboard" style={{ color: T.muted }}>{lang === 'en' ? 'Dashboard' : '대시보드'}</Link>
             <Link href="/scores" style={{ color: T.muted }}>종목 점수</Link>
             <Link href="/method" style={{ color: T.teal, fontWeight: 700 }}>{lang === 'en' ? 'Method' : '방법론'}</Link>
             <LangToggle lang={lang} />
