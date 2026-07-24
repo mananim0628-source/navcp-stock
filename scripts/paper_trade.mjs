@@ -167,27 +167,34 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     if (!after.length) continue
 
     let kind = null, price = null, when = null
-    for (const [d, , h, l, c] of after) {
+    // ⚠️ 같은 봉에서 손절·목표가 동시에 닿으면 **손절을 우선**한다(의도적·보수적 규칙 —
+    //    일봉으론 어느 쪽이 먼저 닿았는지 알 수 없어, 성과를 유리하게 부풀리지 않는 쪽을 택함).
+    for (let i = 0; i < after.length; i++) {
+      const [d, , h, l, c] = after[i]
       const dd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
       if (t.stop_price != null && Number(l) <= Number(t.stop_price)) { kind = 'stop'; price = Number(t.stop_price); when = dd; break }
       if (t.target_price != null && Number(h) >= Number(t.target_price)) { kind = 'target'; price = Number(t.target_price); when = dd; break }
-      if (after.indexOf(after.find(x => x[0] === d)) + 1 >= MAX_DAYS) { kind = 'timeout'; price = Number(c); when = dd; break }
+      if (i + 1 >= MAX_DAYS) { kind = 'timeout'; price = Number(c); when = dd; break }
     }
-    // 등급 급락은 최신 점수로 판정
+    // 등급 급락 청산 — 즉시 종가(미래가정)가 아니라 **가장 최근 실제 봉의 종가**로 체결(정직).
     if (!kind) {
       const g = sc.grade || gradeOf(Number(sc.total))
       if ((RANK[t.entry_grade] ?? 0) - (RANK[g] ?? 0) >= 2) {
-        kind = 'grade_drop'; price = Number(sc.price); when = today
+        const last = after[after.length - 1]
+        kind = 'grade_drop'; price = Number(last[4])
+        when = `${last[0].slice(0, 4)}-${last[0].slice(4, 6)}-${last[0].slice(6, 8)}`
       }
     }
     if (!kind || !(price > 0)) continue
 
     const days = after.findIndex(x => `${x[0].slice(0,4)}-${x[0].slice(4,6)}-${x[0].slice(6,8)}` === when) + 1
     const usedAfter = after.slice(0, days > 0 ? days : after.length)
+    // MAE/MFE는 **원 진입가** 기준(물타기 평단으로 계산하면 물타기 전 구간이 왜곡됨 — H 수정).
     const { mae, mfe } = maeMfe(Number(t.entry_price), usedAfter)
-    const pnl = pct(price, t.entry_price)
-    // R-multiple = 실현손익 ÷ 진입 시 감수했던 하락폭(진입가-손절가)
-    const riskPer = t.stop_price != null ? (Number(t.entry_price) - Number(t.stop_price)) / Number(t.entry_price) * 100 : null
+    // 손익·R은 **평단(실제 비용)** 기준. 물타기 없으면 avg_price=null → entry_price.
+    const cost = Number(t.avg_price || t.entry_price)
+    const pnl = pct(price, cost)
+    const riskPer = t.stop_price != null ? (cost - Number(t.stop_price)) / cost * 100 : null
     const rMul = riskPer && riskPer > 0 ? +(pnl / riskPer).toFixed(2) : null
     await rest(`stock_paper_trade?id=eq.${t.id}`, {
       method: 'PATCH',
@@ -213,17 +220,21 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const macroPre = { kr: await idxUp('^KS11'), us: await idxUp('^GSPC') }
 
   // ── 1.5) 물타기(추가매수) — 현물 특성상 손절만이 답은 아니다.
-  //   보유 종목이 진입가 대비 -ADD_DROP% 이상 하락했지만 **점수가 여전히 유효**하면,
+  //   보유 종목이 평단 대비 -ADD_DROP% 이상 하락했지만 **점수가 여전히 유효**하면,
   //   현금 쿠션 범위에서 1회 추가 매수해 평단을 낮춘다. 손절선은 새 평단 기준으로 재설정.
-  const openFull = await rest('stock_paper_trade?select=*&status=eq.open')
-  let usedNow = openFull.reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)   // 현재 총투입%
+  //   ⚠️ 예산·위험(히트)은 신규 진입과 동일 한도를 지킨다. pending 포지션도 자본/위험에 포함.
+  const openLike = await rest('stock_paper_trade?select=*&status=in.(open,pending)')
+  let usedNow = openLike.reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)   // 총투입%(open+pending)
+  let heatNow = openLike.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)      // 총위험%(open+pending)
   let added = 0
   if (ADD_ENABLED) {
-    for (const t of openFull) {
+    for (const t of openLike) {
+      if (t.status !== 'open') continue                       // 아직 체결 안 된 pending엔 물타기 없음
       if ((t.add_count || 0) >= ADD_MAX) continue
-      if (usedNow >= MAX_INVESTED) break
+      if (usedNow >= MAX_INVESTED || heatNow >= PORT_HEAT) break
       const row = byS.get(t.symbol); if (!row) continue
       const sc = row.scores || {}
+      // ⚠️ 체결가: 최신 실제 종가(sc.price = 엔진이 적재한 마지막 종가, 과거 실가). 미래가 아님.
       const cur = Number(sc.price); if (!(cur > 0)) continue
       const base = Number(t.avg_price || t.entry_price)
       const drop = ((cur - base) / base) * 100
@@ -231,32 +242,36 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       // 점수가 여전히 유효해야 물탄다(추세 꺾였으면 손절이 맞음)
       const macroFav = t.country === 'US' ? macroPre.us : macroPre.kr
       if (!entrySignal(sc, macroFav)) continue
-      // 추가 비중 = 기존 비중의 절반, 현금 여유로 캡
-      let addW = Math.min(Number(t.weight_pct) / 2, MAX_INVESTED - usedNow, MAX_WEIGHT - Number(t.weight_pct))
+      const oldW = Number(t.weight_pct)
+      const a = Number(sc.atr14) || (base * 0.03)
+      // 새 평단 가정에서의 손절 거리(추가 위험 계산용) — 먼저 addW 후보로 평단 근사
+      let addW = Math.min(oldW / 2, MAX_INVESTED - usedNow, MAX_WEIGHT - oldW)
       if (addW < 1) continue
       addW = +addW.toFixed(2)
-      const oldW = Number(t.weight_pct), newW = +(oldW + addW).toFixed(2)
+      const newW = +(oldW + addW).toFixed(2)
       const newAvg = +((base * oldW + cur * addW) / newW).toFixed(2)   // 비중가중 평단
-      const a = Number(sc.atr14) || (base * 0.03)
       const newStop = +(newAvg - ATR_STOP * a).toFixed(2)
       const newTarget = +(newAvg + ATR_TARGET * a).toFixed(2)
       const stopDistPct = ((newAvg - newStop) / newAvg) * 100
+      const newRisk = +(newW * stopDistPct / 100).toFixed(2)
+      // 히트 상한 초과하면 물타기 스킵(신규진입과 동일 규율)
+      if (heatNow - (Number(t.risk_pct) || 0) + newRisk > PORT_HEAT + 0.01) continue
       await rest(`stock_paper_trade?id=eq.${t.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          weight_pct: newW, avg_price: newAvg, entry_price: newAvg,   // 이후 손익은 평단 기준
+          weight_pct: newW, avg_price: newAvg,               // ⚠️ entry_price는 원 진입가 유지(H: MAE/MFE 오염 방지)
           stop_price: newStop, target_price: newTarget,
-          risk_pct: +(newW * stopDistPct / 100).toFixed(2),
+          risk_pct: newRisk,
           add_count: (t.add_count || 0) + 1,
           entry_reason: `${t.entry_reason} || [물타기 ${(t.add_count||0)+1}회] ${cur} 매수(${drop.toFixed(1)}% 하락, 점수 유효) → 평단 ${newAvg}`,
         }),
       })
-      usedNow += addW; added++
+      usedNow += addW; heatNow += newRisk - (Number(t.risk_pct) || 0); added++
     }
   }
 
   // ── 2) 신규 진입 판정 — 종합 근거 기반(점수 하나로 자르지 않음) + 거시 국면 반영
-  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct,weight_pct,status&status=in.(open,pending)')
+  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct,weight_pct,status,tier&status=in.(open,pending)')
   const room = Math.max(0, MAX_OPEN - stillOpenRows.length)
   const openSyms = new Set(stillOpenRows.map(r => r.symbol))
   let openHeat = stillOpenRows.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)   // 현재 열린 위험 합
@@ -286,7 +301,8 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   let usedCapital = openWeight
   // 코어 예산 = 전체투입 - 위성예산. 위성은 별도 버킷으로 SAT_BUDGET까지만.
   const coreCap = MAX_INVESTED - SAT_BUDGET
-  let usedSat = 0
+  // ⚠️ 기존 위성 노출을 반영해 시작(G: 매 실행 0 초기화하면 SAT_BUDGET 초과 가능)
+  let usedSat = stillOpenRows.filter(r => r.tier === 'satellite').reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)
   // 코어 먼저, 그다음 위성 순으로 처리(위성이 코어 자리를 뺏지 않게)
   const ordered = [...scored.filter(x => x.tier === 'core'), ...scored.filter(x => x.tier === 'satellite')]
 

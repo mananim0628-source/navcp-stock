@@ -55,25 +55,43 @@ export function atr(rows, n = 14) {
 }
 
 // 상대강도 — 같은 기간 지수 대비 초과 상승률(%p). 양수면 시장보다 강함.
-export function relStrength(rows, benchCloses, n = 60) {
-  if (!rows || rows.length < n + 1 || !benchCloses || benchCloses.length < n + 1) return null
-  const c = rows.map(r => r.c)
-  const sR = (c[c.length - 1] / c[c.length - 1 - n] - 1) * 100
-  const b = benchCloses
-  const bR = (b[b.length - 1] / b[b.length - 1 - n] - 1) * 100
-  if (!Number.isFinite(sR) || !Number.isFinite(bR)) return null
+// ⚠️ 배열 위치가 아니라 **날짜**로 맞춘다(휴장일·거래정지로 종목/지수 거래일 수가 달라지면
+//    위치 정렬은 서로 다른 날짜를 비교하게 됨 — 크립토 rel_strength 버그와 같은 유형).
+export function relStrength(rows, bench, n = 60) {
+  if (!rows || rows.length < n + 1 || !bench || bench.size < n + 1) return null
+  const nowD = rows[rows.length - 1].d          // YYYYMMDD
+  const pastD = rows[rows.length - 1 - n].d
+  // 벤치마크에서 해당 날짜(없으면 그 이전 최근 거래일) 종가를 찾는다
+  const benchAt = ymd => {
+    if (bench.has(ymd)) return bench.get(ymd)
+    let best = null, bestD = ''
+    for (const [d, v] of bench) if (d <= ymd && d > bestD) { bestD = d; best = v }
+    return best
+  }
+  const sNow = rows[rows.length - 1].c, sPast = rows[rows.length - 1 - n].c
+  const bNow = benchAt(nowD), bPast = benchAt(pastD)
+  if (![sNow, sPast, bNow, bPast].every(v => Number.isFinite(v) && v > 0)) return null
+  const sR = (sNow / sPast - 1) * 100
+  const bR = (bNow / bPast - 1) * 100
   return +(sR - bR).toFixed(2)
 }
 
-// 야후에서 지수 종가 배열 (상대강도 벤치마크). 실패해도 엔진을 막지 않는다.
+// 야후에서 지수 (날짜→종가) Map 반환 — 상대강도 벤치마크. 실패해도 엔진을 막지 않는다.
 export async function benchCloses(symbol) {
   try {
     const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1y&interval=1d`,
       { headers: { 'User-Agent': 'Mozilla/5.0' } })
     if (!r.ok) return null
-    const c = (await r.json())?.chart?.result?.[0]?.indicators?.quote?.[0]?.close
-    const arr = (c || []).filter(Number.isFinite)
-    return arr.length > 70 ? arr : null
+    const res = (await r.json())?.chart?.result?.[0]
+    const ts = res?.timestamp || []
+    const cl = res?.indicators?.quote?.[0]?.close || []
+    const m = new Map()
+    for (let i = 0; i < ts.length; i++) {
+      if (!Number.isFinite(cl[i])) continue
+      const d = new Date(ts[i] * 1000).toISOString().slice(0, 10).replace(/-/g, '')  // YYYYMMDD
+      m.set(d, cl[i])
+    }
+    return m.size > 70 ? m : null
   } catch { return null }
 }
 

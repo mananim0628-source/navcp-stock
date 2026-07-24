@@ -107,10 +107,12 @@ const RANK = { 경계: 0, 주의: 1, 중립: 2, 우호: 3, 강한우호: 4 }
       const email = emailOf.get(uid)
       for (const t of paper) {
         if (!syms.has(t.symbol)) continue
-        if (t.entry_date === today && (t.status === 'open' || t.status === 'pending')) {
+        // ⚠️ pending(미체결)은 진입 알림 보내지 않음(C: 확정 안 된 가격을 체결가처럼 보내지 않기).
+        //    실제 체결(status=open)된 것만. event_key에 체결일을 넣어 체결 후 1회만.
+        if (t.status === 'open' && t.entry_date === today) {
           rows.push({
             user_id: uid, email, symbol: t.symbol, country: t.country, name: t.name,
-            kind: 'paper_entry', event_key: `${today}:${t.symbol}:pentry`,
+            kind: 'paper_entry', event_key: `${t.entry_date}:${t.symbol}:pentry`,
             payload: { price: t.entry_price, session: t.session, fill: t.fill_basis },
           })
         }
@@ -186,6 +188,14 @@ const RANK = { 경계: 0, 주의: 1, 중립: 2, 우호: 3, 강한우호: 4 }
           광고성 정보가 아닙니다. 알림 해제: <a href="${SITE}/my">${SITE}/my</a>
         </p>
       </div>`
+    // ⚠️ 중복 발송 방지(I): 발송 전에 pending→sending 원자적 클레임(상태가 여전히 pending일 때만 성공).
+    //    두 워커가 동시에 돌아도 한쪽만 클레임에 성공 → 다른 쪽은 이 행을 건너뜀.
+    const claim = await fetch(`${SUPA_URL}/rest/v1/stock_alert_outbox?id=eq.${m.id}&status=eq.pending`, {
+      method: 'PATCH', headers: { ...H, Prefer: 'return=representation' },
+      body: JSON.stringify({ status: 'sending' }),
+    })
+    const claimed = claim.ok ? await claim.json() : []
+    if (!claimed.length) continue                       // 이미 다른 워커가 가져감
     try {
       await tx.sendMail({ from: SMTP_FROM || SMTP_USER, to: m.email, subject: subj, html })
       await rest(`stock_alert_outbox?id=eq.${m.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'sent', sent_at: new Date().toISOString() }) })
