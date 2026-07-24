@@ -146,7 +146,7 @@ export default async function Home() {
                 const on = Math.min(1, Math.abs(s.chg) / 3)
                 const bg = s.chg >= 0 ? `rgba(40,199,111,${0.12 + on * 0.4})` : `rgba(240,101,74,${0.12 + on * 0.4})`
                 return (
-                  <div key={s.name} style={{ borderRadius: 10, padding: '10px 12px', background: bg, border: `1px solid ${T.cardBr}` }}>
+                  <div key={s.name} style={{ borderRadius: 10, padding: '10px 12px', background: bg, border: `1px solid ${T.cardBr}`, gridColumn: `span ${Math.min(3, Math.max(1, Math.round(s.n / 3)))}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
                     <div style={{ fontSize: 15, fontWeight: 800, color: s.chg >= 0 ? T.green : T.red, marginTop: 2 }}>{s.chg > 0 ? '+' : ''}{s.chg}%</div>
                     <div style={{ fontSize: 10, color: T.muted }}>{s.n}종목 · 평균 {s.tot}점</div>
