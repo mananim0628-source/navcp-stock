@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CandleChart from '@/components/CandleChart'
+import CommunityChat from '@/components/CommunityChat'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,7 +23,11 @@ const FACTORS: { key: string; label: string; cap: number; hint: string }[] = [
 const won = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('ko-KR') + '원')
 
 export default async function StockDetail({ params }: { params: { symbol: string } }) {
-  const { data } = await supabase.from('stock_score_cache').select('*').eq('symbol', params.symbol).limit(1).single()
+  const [{ data }, { data: peers }, { data: sent }] = await Promise.all([
+    supabase.from('stock_score_cache').select('*').eq('symbol', params.symbol).limit(1).single(),
+    supabase.from('stock_score_cache').select('scores'),                       // 퍼센타일 계산용 유니버스
+    supabase.from('stock_chat_sentiment').select('*').eq('symbol', params.symbol).maybeSingle(),
+  ])
   if (!data) return notFound()
   const r = data as StockScore
   const sc = r.scores as Record<string, number | string | null>
@@ -33,6 +38,18 @@ export default async function StockDetail({ params }: { params: { symbol: string
   const price = num(sc.price), chg = num(sc.chg)
   const support = num(sc.support), resistance = num(sc.resistance)
   const rsi = num(sc.rsi), ma20 = num(sc.ma20), ma60 = num(sc.ma60)
+
+  // 퍼센타일 — 유니버스 대비 상위 몇 %인지 (Stockopedia 방식)
+  const allTotals = ((peers || []) as { scores: Record<string, number> }[])
+    .map(p => Number(p?.scores?.total)).filter(Number.isFinite)
+  const below = allTotals.filter(t => t < total).length
+  const pctile = allTotals.length > 1 ? Math.round((below / allTotals.length) * 100) : null
+  const topPct = pctile != null ? Math.max(1, 100 - pctile) : null
+
+  // 커뮤니티 센티먼트(최근 7일 강세/약세 태그)
+  const s = sent as { bull: number; bear: number; msgs: number } | null
+  const votes = s ? Number(s.bull) + Number(s.bear) : 0
+  const bullPct = votes > 0 ? Math.round((Number(s!.bull) / votes) * 100) : null
 
   const Stat = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
     <div style={{ ...cardStyle, borderRadius: 14, padding: 14, flex: 1, minWidth: 120 }}>
@@ -59,7 +76,10 @@ export default async function StockDetail({ params }: { params: { symbol: string
             <div style={{ fontSize: 11, color: T.muted }}>/ 100</div>
           </div>
           <div style={{ flex: 1, minWidth: 180 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: col }}>{gradeLabel(total)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: col }}>
+              {gradeLabel(total)}
+              {topPct != null && <span style={{ fontSize: 12, fontWeight: 700, color: T.teal, marginLeft: 8 }}>유니버스 상위 {topPct}%</span>}
+            </div>
             <div style={{ fontSize: 30, fontWeight: 800, marginTop: 6 }}>{won(price)}</div>
             {chg != null && <div style={{ fontSize: 15, fontWeight: 700, color: chg > 0 ? T.green : chg < 0 ? T.red : T.muted }}>{chg > 0 ? '▲' : chg < 0 ? '▼' : ''} {Math.abs(chg)}%</div>}
             {cov != null && <div style={{ fontSize: 12, color: cov < 85 ? T.red : T.muted, marginTop: 6 }}>측정 커버리지 {cov}%{cov < 85 ? ' — 일부 팩터는 아직 측정 전' : ''}</div>}
@@ -104,6 +124,33 @@ export default async function StockDetail({ params }: { params: { symbol: string
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>📈 차트 <span style={{ fontSize: 12, color: T.muted, fontWeight: 400 }}>· 일봉 + 20/60일선 + 지지/저항</span></div>
           <CandleChart candles={(sc.candles as unknown as [string, number, number, number, number][]) || []} support={support} resistance={resistance} />
+        </div>
+
+        {/* 커뮤니티 센티먼트 — 데이터(점수) vs 군중(태그) 비교 */}
+        <div style={{ ...cardStyle, borderRadius: 16, padding: 18, marginTop: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>🗳️ 커뮤니티 여론 <span style={{ fontSize: 12, color: T.muted, fontWeight: 400 }}>· 최근 7일 태그</span></div>
+          {bullPct != null ? (
+            <>
+              <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', marginTop: 12 }}>
+                <div style={{ width: `${bullPct}%`, background: T.green }} />
+                <div style={{ width: `${100 - bullPct}%`, background: T.red }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 6 }}>
+                <span style={{ color: T.green, fontWeight: 700 }}>🐂 강세 {bullPct}% ({s!.bull})</span>
+                <span style={{ color: T.red, fontWeight: 700 }}>🐻 약세 {100 - bullPct}% ({s!.bear})</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8, lineHeight: 1.6 }}>
+                여론은 <b style={{ color: T.text }}>참고 지표</b>일 뿐, 7팩터 점수와 다를 수 있어요. 오히려 <b style={{ color: T.text }}>점수와 여론이 엇갈릴 때</b> 왜 그런지 살펴보는 게 학습에 도움이 됩니다.
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: T.muted, marginTop: 10 }}>아직 태그된 의견이 없어요. 아래 채팅에서 🐂/🐻 태그를 달아보세요.</div>
+          )}
+        </div>
+
+        {/* 종목 전용 채팅방 */}
+        <div style={{ marginTop: 14, height: 460 }}>
+          <CommunityChat symbol={r.symbol} title={`${r.name} 토론방`} />
         </div>
 
         <p style={{ fontSize: 12, color: T.muted, marginTop: 22, lineHeight: 1.7, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14 }}>

@@ -25,6 +25,10 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
     .filter(r => active.test(Math.round(num(r.scores?.total))))
     .filter(r => !query || (r.name || '').toLowerCase().includes(query) || (r.symbol || '').includes(query))
   const count = (b: typeof BANDS[number]) => rows.filter(r => b.test(Math.round(num(r.scores?.total)))).length
+  // 퍼센타일(유니버스 대비 상위 %) — Stockopedia StockRank 방식
+  const totals = rows.map(r => Math.round(num(r.scores?.total))).filter(Number.isFinite)
+  const topPct = (t: number) => totals.length > 1
+    ? Math.max(1, 100 - Math.round((totals.filter(x => x < t).length / totals.length) * 100)) : null
 
   return (
     <>
@@ -65,6 +69,7 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{r.name || r.symbol} <span style={{ color: T.muted, fontSize: 12 }}>{r.symbol}</span></div>
                   <div style={{ fontSize: 12, marginTop: 2 }}>
                     <span style={{ color: col, fontWeight: 700 }}>{gradeLabel(total)}</span>
+                    {topPct(total) != null && <span style={{ color: T.teal, marginLeft: 8, fontWeight: 700 }}>상위 {topPct(total)}%</span>}
                     {cov != null && <span style={{ color: low ? T.red : T.muted, marginLeft: 8 }}>커버리지 {cov}%{low ? ' ⚠️' : ''}</span>}
                   </div>
                 </div>

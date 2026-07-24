@@ -6,7 +6,7 @@ import { T, cardStyle } from '@/lib/theme'
 
 // 익명 실시간 커뮤니티 채팅 — Supabase Realtime. 로그인 없이 세션 닉네임 자동생성.
 // 운영자는 대화에 개입해 종목 리딩/권유하지 않음(§규제). 사용자 간 자유 토론 게시판.
-type Msg = { id: number; nick: string; body: string; created_at: string }
+type Msg = { id: number; nick: string; body: string; created_at: string; symbol?: string | null; tag?: 'bull' | 'bear' | null }
 
 const HEX = '0123456789ABCDEF'
 function makeNick() {
@@ -15,8 +15,10 @@ function makeNick() {
   return '익명-' + s
 }
 
-export default function CommunityChat() {
+// symbol 지정 시 해당 종목 전용 방(Stocktwits ticker rooms), 없으면 전체방.
+export default function CommunityChat({ symbol, title }: { symbol?: string; title?: string } = {}) {
   const [msgs, setMsgs] = useState<Msg[]>([])
+  const [tag, setTag] = useState<'bull' | 'bear' | null>(null)
   const [text, setText] = useState('')
   const [nick, setNick] = useState('')
   const [sending, setSending] = useState(false)
@@ -31,18 +33,20 @@ export default function CommunityChat() {
     setNick(n)
     setMod(localStorage.getItem('navcp_mod_token') || '')
 
-    supabase.from('stock_chat').select('*').order('created_at', { ascending: false }).limit(60)
-      .then(({ data }) => setMsgs(((data as Msg[]) || []).reverse()))
+    const base = supabase.from('stock_chat').select('*').order('created_at', { ascending: false }).limit(60)
+    const q = symbol ? base.eq('symbol', symbol) : base.is('symbol', null)
+    q.then(({ data }) => setMsgs(((data as Msg[]) || []).reverse()))
 
+    const flt = symbol ? `symbol=eq.${symbol}` : 'symbol=is.null'
     const ch = supabase
-      .channel('stock_chat_rt')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stock_chat' },
+      .channel(`stock_chat_rt_${symbol || 'all'}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stock_chat', filter: flt },
         payload => setMsgs(m => (m.some(x => x.id === (payload.new as Msg).id) ? m : [...m, payload.new as Msg].slice(-120))))
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'stock_chat' },
         payload => setMsgs(m => m.filter(x => x.id !== (payload.old as Msg).id)))
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [])
+  }, [symbol])
 
   useEffect(() => { boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight }) }, [msgs])
 
@@ -51,14 +55,14 @@ export default function CommunityChat() {
     if (!body || sending) return
     if (Date.now() - lastSent.current < 2000) { setErr('잠시 후 다시 시도해 주세요.'); return }
     setSending(true); setErr('')
-    const { error } = await supabase.from('stock_chat').insert({ nick, body: body.slice(0, 300) })
+    const { error } = await supabase.from('stock_chat').insert({ nick, body: body.slice(0, 300), symbol: symbol ?? null, tag })
     setSending(false)
     if (error) {
       // DB 트리거 차단 사유(금지어·도배·중복)를 그대로 안내
       setErr((error as any).hint || (error.message?.includes('BLOCKED') ? '리딩·권유·스팸·욕설은 등록할 수 없습니다.' : '전송에 실패했어요.'))
       return
     }
-    setText(''); lastSent.current = Date.now()
+    setText(''); setTag(null); lastSent.current = Date.now()
   }
 
   // 운영자 모드: 헤더 제목 더블클릭 → 토큰 입력(로컬 저장). 토큰이 틀리면 삭제 RPC가 false 반환.
@@ -79,7 +83,7 @@ export default function CommunityChat() {
     <div style={{ ...cardStyle, borderRadius: 14, padding: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <div style={{ padding: '12px 14px', borderBottom: `1px solid ${T.cardBr}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: T.green }} />
-        <span onDoubleClick={toggleMod} style={{ fontWeight: 800, fontSize: 14, cursor: 'default', userSelect: 'none' }}>실시간 커뮤니티</span>
+        <span onDoubleClick={toggleMod} style={{ fontWeight: 800, fontSize: 14, cursor: 'default', userSelect: 'none' }}>{title || '실시간 커뮤니티'}</span>
         {mod && <span style={{ fontSize: 10, color: T.gold, fontWeight: 700 }}>운영자</span>}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: T.muted }}>{nick}</span>
       </div>
@@ -96,12 +100,27 @@ export default function CommunityChat() {
                   style={{ marginLeft: 6, background: 'none', border: 'none', color: T.red, cursor: 'pointer', fontSize: 11, padding: 0 }}>🗑</button>}
               </div>
               <div style={{ fontSize: 13.5, lineHeight: 1.5, padding: '7px 11px', borderRadius: 12, wordBreak: 'break-word',
-                background: mine ? T.teal : 'rgba(255,255,255,0.06)', color: mine ? T.onTeal : T.text }}>{m.body}</div>
+                background: mine ? T.teal : 'rgba(255,255,255,0.06)', color: mine ? T.onTeal : T.text }}>
+                {m.tag && <span style={{ fontSize: 10.5, fontWeight: 800, marginRight: 6, padding: '1px 5px', borderRadius: 5,
+                  background: m.tag === 'bull' ? T.green : T.red, color: '#06121f' }}>{m.tag === 'bull' ? '🐂 강세' : '🐻 약세'}</span>}
+                {m.body}
+              </div>
             </div>
           )
         })}
       </div>
 
+      {/* 강세/약세 태그 (종목방에서만) */}
+      {symbol && (
+        <div style={{ display: 'flex', gap: 6, padding: '8px 10px 0' }}>
+          {([['bull', '🐂 강세', T.green], ['bear', '🐻 약세', T.red]] as const).map(([k, label, c]) => (
+            <button key={k} onClick={() => setTag(tag === k ? null : k)}
+              style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+                background: tag === k ? c : 'transparent', color: tag === k ? '#06121f' : T.muted, border: `1px solid ${tag === k ? c : T.cardBr}` }}>{label}</button>
+          ))}
+          <span style={{ fontSize: 10.5, color: T.muted, alignSelf: 'center' }}>내 견해를 태그로(선택)</span>
+        </div>
+      )}
       {err && <div style={{ padding: '6px 12px', fontSize: 11.5, color: T.red, borderTop: `1px solid ${T.cardBr}` }}>⚠️ {err}</div>}
       <div style={{ borderTop: err ? 'none' : `1px solid ${T.cardBr}`, padding: 10, display: 'flex', gap: 8 }}>
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send() }}
