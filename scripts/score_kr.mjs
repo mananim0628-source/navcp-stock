@@ -7,6 +7,7 @@
 // §1: 분석·도구. 종목 추천 아님. 임계·정규화는 백테스트 후 재설정 대상(v0는 근사).
 // ============================================================
 import fs from 'node:fs'
+import { extras, benchCloses } from './indicators.mjs'
 // Supabase는 REST(PostgREST) fetch로 upsert — VPS에 SDK 설치 불필요.
 
 const AK = process.env.KIS_APP_KEY, SK = process.env.KIS_APP_SECRET
@@ -443,6 +444,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const history = []   // 백테스트용 일별 스냅샷
   const macroScore = await computeMacro()   // 시장 공통 1회
   const UNIVERSE = await fetchUniverse(tok)
+  const BENCH = await benchCloses('^KS11')   // 상대강도 벤치마크(코스피)
   console.log(`유니버스 ${UNIVERSE.length}종목 · 거시점수 ${macroScore ?? 'n/a'}\n`)
   let ok = 0, tossUsed = 0
   console.log(TOSS_ID ? '토스 보강: 활성(수정주가 캔들·유의종목 필터)' : '토스 보강: 미설정 → KIS 단독')
@@ -459,7 +461,9 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       if (warn && warn.length) { console.log('  skip', s.name, '(유의종목:', warn.join(','), ')'); continue }
       // 캔들: 토스 수정주가 우선, 실패 시 KIS 폴백
       const tossC = await tossDaily(s.code)
-      const techInfo = computeTechAndLevels(tossC || (await daily(s.code, tok)))
+      const candleRows = tossC || (await daily(s.code, tok))
+      const techInfo = computeTechAndLevels(candleRows)
+      const ex = extras(candleRows, BENCH)
       if (tossC) tossUsed++
       await sleep(250)
       const finInfo = computeFinancial(await financialRatio(s.code, tok), Number(o.stck_prpr))
@@ -467,6 +471,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const derivInfo = computeDerivative(await shortSale(s.code, tok))
       const aiInfo = await dartAI(s.code)
       const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiInfo)
+      Object.assign(scores, ex)   // 보조지표(점수 미합산·참고용)
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.code, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price: scores.price, snapshot_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'

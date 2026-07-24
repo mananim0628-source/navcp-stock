@@ -17,6 +17,8 @@ const TARGET = Number(process.env.US_TARGET || 100)
 const MIN_PRICE = Number(process.env.US_MIN_PRICE || 5)          // $5 미만 제외
 const MIN_CAP = Number(process.env.US_MIN_CAP || 1_000_000_000)  // 시총 $1B 미만 제외
 
+import { extras, benchCloses } from './indicators.mjs'
+
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const mean = a => a.reduce((x, y) => x + y, 0) / a.length
 
@@ -442,6 +444,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const now = new Date().toISOString(), today = now.slice(0, 10)
   const macro = await computeMacro()
   const UNIVERSE = await fetchUniverse()
+  const BENCH = await benchCloses('^GSPC')   // 상대강도 벤치마크(S&P500)
   const shortMap = await finraShortMap(20)
   const cuts = shortCuts(UNIVERSE, shortMap)
   if (cuts) console.log(`[US] 공매도 임계(유니버스 상대) p25=${cuts.p25.toFixed(1)}% p50=${cuts.p50.toFixed(1)}% p75=${cuts.p75.toFixed(1)}%`)
@@ -460,6 +463,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const deriv = computeDerivative(shortMap.get(s.symbol), cuts)
       const disc = await secDisclosure(s.symbol)
       const { scores, coverage } = scoreStock({ price, chg, macro, fin, tech, deriv, disc, sup })
+      Object.assign(scores, extras(rows, BENCH))   // 보조지표(점수 미합산·참고용)
       await upsert({ symbol: s.symbol, name: s.name, market: s.market, country: 'US', scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.symbol, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price, country: 'US', snapshot_at: now })
       console.log(`  ${String(s.symbol).padEnd(6)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage * 100)}% · PER ${scores.per} · 공매도 ${scores.short_ratio}% · 8-K(${disc?.pos ?? '-'}/${disc?.neg ?? '-'})`)

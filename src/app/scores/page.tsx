@@ -32,6 +32,7 @@ export default async function ScoresPage({ searchParams }: { searchParams?: { co
             <Link href="/scores?country=KR" style={{ color: country === 'KR' ? T.teal : T.muted, fontWeight: country === 'KR' ? 700 : 400 }}>{t('navKR')}</Link>
             <Link href="/scores?country=US" style={{ color: country === 'US' ? T.teal : T.muted, fontWeight: country === 'US' ? 700 : 400 }}>{t('navUS')}</Link>
             <Link href="/method" style={{ color: T.muted }}>{t('navMethod')}</Link>
+            <Link href="/journal" style={{ color: T.muted }}>{isEn ? 'Journal' : '매매일지'}</Link>
             <Link href="/my" style={{ color: T.muted }}>{isEn ? 'My' : '내 정보'}</Link>
             <LangToggle lang={lang} />
           </nav>
