@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CommunityChat from '@/components/CommunityChat'
+import RecentActivity from '@/components/RecentActivity'
 import MarketClock from '@/components/MarketClock'
 import FilingFeed from '@/components/FilingFeed'
 import { trSector } from '@/lib/terms'
@@ -29,11 +30,12 @@ const num = (v: unknown) => (v == null ? 0 : Number(v))
 
 export default async function Home() {
   const lang = getLang(); const t = tr(lang); const isEn = lang === 'en'
-  const [{ data: krData }, { data: usData }, hours, { data: hist }, kospi, kosdaq, nasdaq, sp500, vix, usdkrw] = await Promise.all([
+  const [{ data: krData }, { data: usData }, hours, { data: hist }, { data: paperRows }, kospi, kosdaq, nasdaq, sp500, vix, usdkrw] = await Promise.all([
     supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').eq('country', 'KR').limit(150),
     supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').eq('country', 'US').limit(150),
     marketHours(),
     supabase.from('stock_score_history').select('d').order('d', { ascending: true }),
+    supabase.from('stock_paper_trade').select('id,symbol,name,country,status,entry_date,entry_score,exit_date,exit_kind,pnl_pct').order('entry_date', { ascending: false }).limit(40),
     idx('^KS11'), idx('^KQ11'), idx('^IXIC'), idx('^GSPC'), idx('^VIX'), idx('KRW=X'),
   ])
   const kr = (krData || []) as StockScore[]
@@ -325,7 +327,16 @@ export default async function Home() {
           <br /><Link href="/privacy" style={{ color: T.muted, textDecoration: 'underline' }}>{t('privacy')}</Link>
         </p>
        </main>
-       <aside className="chat-rail"><CommunityChat lang={lang} /></aside>
+       <aside className="chat-rail" style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'auto', maxHeight: 'calc(100vh - 104px)' }}>
+         <div style={{ flex: '1 1 auto', minHeight: 260 }}><CommunityChat lang={lang} /></div>
+         <div style={{ flexShrink: 0 }}>
+           <RecentActivity trades={(paperRows || []).map((t: any) => ({
+             id: t.id, symbol: t.symbol, name: t.name, country: t.country, status: t.status,
+             entry_date: t.entry_date, entry_score: t.entry_score,
+             exit_date: t.exit_date, exit_kind: t.exit_kind, pnl_pct: t.pnl_pct,
+           }))} lang={lang} />
+         </div>
+       </aside>
       </div>
     </div>
   )

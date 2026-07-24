@@ -9,25 +9,34 @@ import { T, cardStyle } from '@/lib/theme'
 //    ② 손익은 **청산일**에 반영
 //    ③ 수수료·거래세·슬리피지 **미반영** → 실제 수익률은 이보다 낮다
 export type ClosedTrade = { symbol: string; name: string | null; exit_date: string | null; pnl_pct: number | null; country: string; weight_pct?: number | null }
+export type OpenPos = { weight_pct: number | null; unrealized_pct: number | null }
 
 const MAX_SLOTS = 12          // paper_trade.mjs 의 MAX_OPEN 과 동일
 const CAP_KEY = 'navcp_start_capital'
 
 const won = (v: number) => (v >= 0 ? '+' : '−') + Math.abs(Math.round(v)).toLocaleString('ko-KR')
 
-export default function TradeCalendar({ trades, lang = 'ko' }: { trades: ClosedTrade[]; lang?: 'ko' | 'en' }) {
+export default function TradeCalendar({ trades, openPos = [], lang = 'ko' }: { trades: ClosedTrade[]; openPos?: OpenPos[]; lang?: 'ko' | 'en' }) {
   const en = lang === 'en'
   const [capital, setCapital] = useState(1_000_000)
   const [ym, setYm] = useState<string>('')     // 'YYYY-MM'
 
+  // ⚠️ 시작금액은 마운트 시 1회만 로드(trades 변경마다 덮어쓰지 않게 — 초기화 버그 방지)
   useEffect(() => {
     const v = Number(localStorage.getItem(CAP_KEY))
     if (Number.isFinite(v) && v > 0) setCapital(v)
+  }, [])
+  useEffect(() => {
+    if (ym) return
     const latest = trades.map(t => t.exit_date).filter(Boolean).sort().pop()
     setYm((latest || new Date().toISOString()).slice(0, 7))
-  }, [trades])
+  }, [trades, ym])
 
-  const slot = capital / MAX_SLOTS   // 1종목당 투입 가정액
+  const slot = capital / MAX_SLOTS   // 1종목당 투입 가정액(비중 없는 옛 기록용)
+
+  // 현재 투입 비중·평가손익(보유 중 포지션)
+  const investedPct = openPos.reduce((a, p) => a + (Number(p.weight_pct) || 0), 0)
+  const unreal = openPos.reduce((a, p) => a + ((Number(p.unrealized_pct) || 0) / 100) * capital * ((Number(p.weight_pct) || 0) / 100), 0)
 
   // 날짜별 손익(원) 집계
   const byDay = useMemo(() => {
@@ -94,6 +103,27 @@ export default function TradeCalendar({ trades, lang = 'ko' }: { trades: ClosedT
               background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.cardBr}`, color: T.text, outline: 'none' }} />
           {en ? 'KRW' : '원'}
         </label>
+      </div>
+
+      {/* 현재 투입 비중 · 평가손익 */}
+      <div style={{ display: 'flex', gap: 14, marginTop: 12, flexWrap: 'wrap', alignItems: 'center',
+        padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.cardBr}` }}>
+        <span style={{ fontSize: 12, color: T.muted }}>{en ? 'Invested' : '현재 투입'}
+          <b style={{ color: T.text, fontSize: 15, marginLeft: 5 }}>{investedPct.toFixed(1)}%</b>
+          <span style={{ color: T.muted, marginLeft: 4 }}>/ {en ? 'cash' : '현금'} {(100 - investedPct).toFixed(1)}%</span>
+        </span>
+        <span style={{ fontSize: 12, color: T.muted }}>{en ? 'Open positions' : '보유'}
+          <b style={{ color: T.text, fontSize: 15, marginLeft: 5 }}>{openPos.length}</b>
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: T.muted }}>{en ? 'Unrealized' : '평가손익'}
+          <b style={{ fontSize: 15, marginLeft: 5, color: unreal > 0 ? T.green : unreal < 0 ? T.red : T.muted }}>{won(unreal)}</b>
+          <span style={{ marginLeft: 4 }}>({capital > 0 ? ((unreal / capital) * 100).toFixed(2) : '0.00'}%)</span>
+        </span>
+      </div>
+
+      {/* 투입 비중 게이지 */}
+      <div style={{ height: 7, borderRadius: 4, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', marginTop: 8 }}>
+        <div style={{ width: `${Math.min(100, investedPct)}%`, height: '100%', background: investedPct > 80 ? T.amber : T.teal }} />
       </div>
 
       {/* 월 이동 + 월 합산 */}

@@ -33,6 +33,18 @@ export default async function Journal() {
   const open = trades.filter(t => t.status === 'open')
   const closed = trades.filter(t => t.status === 'closed')
 
+  // 보유 포지션 평가손익 — 현재가(score_cache) 대비 진입가
+  const openSyms = open.map(t => t.symbol)
+  const { data: priceRows } = openSyms.length
+    ? await supabase.from('stock_score_cache').select('symbol,scores').in('symbol', openSyms)
+    : { data: [] as any[] }
+  const priceOf = new Map((priceRows || []).map((r: any) => [r.symbol, Number(r.scores?.price)]))
+  const openPos = open.map(t => {
+    const cur = priceOf.get(t.symbol)
+    const un = cur && t.entry_price ? ((cur - Number(t.entry_price)) / Number(t.entry_price)) * 100 : null
+    return { weight_pct: t.weight_pct, unrealized_pct: un != null ? +un.toFixed(2) : null }
+  })
+
   // 집계는 **종료된 기록만**. 표본이 적으면 수치를 앞세우지 않는다.
   const wins = closed.filter(t => Number(t.pnl_pct) > 0).length
   const enough = closed.length >= 20
@@ -127,7 +139,7 @@ export default async function Journal() {
 
         {/* 손익 달력 — 상단 배치(가장 먼저 보이는 자리) */}
         <div style={{ marginTop: 14 }}>
-          <TradeCalendar trades={closed.map(t => ({ symbol: t.symbol, name: t.name, exit_date: t.exit_date, pnl_pct: t.pnl_pct, country: t.country, weight_pct: t.weight_pct }))} lang={lang} />
+          <TradeCalendar trades={closed.map(t => ({ symbol: t.symbol, name: t.name, exit_date: t.exit_date, pnl_pct: t.pnl_pct, country: t.country, weight_pct: t.weight_pct }))} openPos={openPos} lang={lang} />
         </div>
 
         {/* 성과 분석 (해외 매매일지 표준 지표) */}
