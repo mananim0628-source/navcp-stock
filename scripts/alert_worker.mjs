@@ -93,6 +93,38 @@ const RANK = { 경계: 0, 주의: 1, 중립: 2, 우호: 3, 강한우호: 4 }
     }
   }
 
+  // 5.5) 체결 알림 — 관심종목에 대해 모의매매가 오늘 진입/청산하면 알림(손매매 참고용).
+  //   ⚠️ '이 종목 사라'는 신호가 아니라 '규칙이 관심종목을 이렇게 판정했다'는 통지.
+  const watchByUser = new Map()
+  for (const w of watch) {
+    if (!prefBy.get(w.user_id) || !emailOf.get(w.user_id)) continue
+    if (!watchByUser.has(w.user_id)) watchByUser.set(w.user_id, new Set())
+    watchByUser.get(w.user_id).add(w.symbol)
+  }
+  if (watchByUser.size) {
+    const paper = await rest(`stock_paper_trade?select=symbol,name,country,status,entry_date,exit_date,entry_price,exit_price,pnl_pct,exit_kind,session,fill_basis&or=(entry_date.eq.${today},exit_date.eq.${today})`)
+    for (const [uid, syms] of watchByUser) {
+      const email = emailOf.get(uid)
+      for (const t of paper) {
+        if (!syms.has(t.symbol)) continue
+        if (t.entry_date === today && (t.status === 'open' || t.status === 'pending')) {
+          rows.push({
+            user_id: uid, email, symbol: t.symbol, country: t.country, name: t.name,
+            kind: 'paper_entry', event_key: `${today}:${t.symbol}:pentry`,
+            payload: { price: t.entry_price, session: t.session, fill: t.fill_basis },
+          })
+        }
+        if (t.exit_date === today && t.status === 'closed') {
+          rows.push({
+            user_id: uid, email, symbol: t.symbol, country: t.country, name: t.name,
+            kind: 'paper_exit', event_key: `${today}:${t.symbol}:pexit`,
+            payload: { price: t.exit_price, pnl: t.pnl_pct, exitKind: t.exit_kind },
+          })
+        }
+      }
+    }
+  }
+
   if (!rows.length) { console.log('[alert] 발생한 이벤트 없음'); return }
 
   // 6) 적재 (중복은 unique 제약이 걸러냄)
@@ -126,16 +158,23 @@ const RANK = { 경계: 0, 주의: 1, 중립: 2, 우호: 3, 강한우호: 4 }
     const p = m.payload || {}
     const subj = m.kind === 'grade_change'
       ? `[투자나침반] ${nm} 등급 변화: ${p.from} → ${p.to}`
-      : `[투자나침반] ${nm} 점수 ${p.total}점 (설정 ${p.threshold}점 도달)`
+      : m.kind === 'threshold'
+      ? `[투자나침반] ${nm} 점수 ${p.total}점 (설정 ${p.threshold}점 도달)`
+      : m.kind === 'paper_entry'
+      ? `[투자나침반] 모의매매 진입 기록 · ${nm}`
+      : `[투자나침반] 모의매매 청산 기록 · ${nm} (${p.pnl > 0 ? '+' : ''}${p.pnl}%)`
     // ⚠️ 매수·매도 권유 문구 금지. 사실 통지 + 면책만.
+    const bodyLine = m.kind === 'grade_change'
+      ? `등급이 <b>${p.from}</b>에서 <b>${p.to}</b>로 바뀌었습니다. (현재 ${p.total}점)`
+      : m.kind === 'threshold'
+      ? `점수가 <b>${p.total}점</b>이 되어 설정하신 <b>${p.threshold}점</b>에 도달했습니다. (현재 등급 ${p.grade})`
+      : m.kind === 'paper_entry'
+      ? `관심종목에 대해 시뮬레이션 규칙이 <b>진입</b>을 기록했습니다. (${p.session === 'close' ? '종가 판정·당일 종가' : '장전 판정·다음 시가'} 기준, 기준가 ${p.price})<br><span style="color:#8A93B5;font-size:13px">실제 주문이 아니며, 매수 권유가 아닙니다. 판단은 본인 몫입니다.</span>`
+      : `관심종목에 대해 시뮬레이션 규칙이 <b>청산</b>을 기록했습니다. (${{ target: '목표 도달', stop: '손절', grade_drop: '등급 하락', timeout: '보유기간 만료' }[p.exitKind] || p.exitKind}, 손익 <b>${p.pnl > 0 ? '+' : ''}${p.pnl}%</b>)`
     const html = `
       <div style="font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;max-width:520px">
         <h2 style="font-size:18px;margin:0 0 12px">${nm} <span style="color:#8A93B5;font-weight:400">${m.symbol}</span></h2>
-        <p style="font-size:15px;line-height:1.7;margin:0 0 14px">
-          ${m.kind === 'grade_change'
-            ? `등급이 <b>${p.from}</b>에서 <b>${p.to}</b>로 바뀌었습니다. (현재 ${p.total}점)`
-            : `점수가 <b>${p.total}점</b>이 되어 설정하신 <b>${p.threshold}점</b>에 도달했습니다. (현재 등급 ${p.grade})`}
-        </p>
+        <p style="font-size:15px;line-height:1.7;margin:0 0 14px">${bodyLine}</p>
         <p style="margin:0 0 18px">
           <a href="${SITE}/scores/${m.symbol}" style="background:#19C2B0;color:#06121f;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">상세 보기</a>
         </p>

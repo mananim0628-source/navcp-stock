@@ -123,7 +123,35 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const cache = await rest('stock_score_cache?select=symbol,name,country,scores,coverage,cached_at')
   if (!cache.length) { console.log('[paper] 점수 캐시 없음'); return }
   const today = String(cache[0].cached_at).slice(0, 10)
+  const nowIso = new Date().toISOString()
+  const kstHM = new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 16)   // KST HH:MM
   const byS = new Map(cache.map(r => [r.symbol, r]))
+
+  // ── 0) 대기(pending) 체결 — 장전 판정은 '다음 시가'로만 체결한다(판정 시점엔 시가 미확정 = 정직).
+  //   판정일 이후 첫 캔들의 **시가**로 진입가를 확정하고 open 으로 전환. 손절·목표도 그 가격 기준.
+  const pending = await rest('stock_paper_trade?select=*&status=eq.pending')
+  let filled = 0
+  for (const t of pending) {
+    const sc = byS.get(t.symbol)?.scores
+    const candles = Array.isArray(sc?.candles) ? sc.candles : null
+    if (!candles) continue
+    const fillC = candles.find(c => String(c[0]).slice(0, 8) > String(t.entry_date).replace(/-/g, ''))
+    if (!fillC) continue                          // 아직 다음 캔들 없음 → 다음 실행 때 체결
+    const fillOpen = Number(fillC[1])             // [날짜,시,고,저,종] → 시가
+    const fillDate = `${fillC[0].slice(0,4)}-${fillC[0].slice(4,6)}-${fillC[0].slice(6,8)}`
+    if (!(fillOpen > 0)) continue
+    const a = Number(sc.atr14) || fillOpen * 0.03
+    await rest(`stock_paper_trade?id=eq.${t.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: 'open', entry_price: fillOpen, entry_date: fillDate,
+        stop_price: +(fillOpen - ATR_STOP * a).toFixed(2),
+        target_price: +(fillOpen + ATR_TARGET * a).toFixed(2),
+        entry_reason: `${t.entry_reason} → ${fillDate} 시가 ${fillOpen} 체결`,
+      }),
+    })
+    filled++
+  }
 
   // ── 1) 보유 중 포지션 청산 판정 — 진입 이후 실제 캔들로만 본다
   const open = await rest('stock_paper_trade?select=*&status=eq.open')
@@ -228,7 +256,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   }
 
   // ── 2) 신규 진입 판정 — 종합 근거 기반(점수 하나로 자르지 않음) + 거시 국면 반영
-  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct,weight_pct&status=eq.open')
+  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct,weight_pct,status&status=in.(open,pending)')
   const room = Math.max(0, MAX_OPEN - stillOpenRows.length)
   const openSyms = new Set(stillOpenRows.map(r => r.symbol))
   let openHeat = stillOpenRows.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)   // 현재 열린 위험 합
@@ -290,13 +318,17 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     usedCapital += weight
     if (tier === 'satellite') usedSat += weight
     const invest = Math.round(SEED * weight / 100)
+    // 체결 방식: 장전 판정은 '다음 시가'(당일 시가 미확정 → pending), 종가 판정은 '당일 종가' 즉시 체결.
+    const isPre = SESSION === 'preopen'
     news.push({
       symbol: r.symbol, country: r.country, name: r.name, rule: RULE, tier,
-      entry_date: today, entry_price: price,
+      status: isPre ? 'pending' : 'open',
+      entry_date: today, entry_price: price,     // pending은 다음 실행에서 시가로 덮어씀
       entry_score: Math.round(Number(sc.total)),
       entry_grade: sc.grade || gradeOf(Number(sc.total)),
-      session: SESSION,
-      entry_reason: `[${SESSION_KO} 매수] ${reasons.join(' · ')} || ` + entryReason({ ...sc, coverage: r.coverage, grade: sc.grade || gradeOf(Number(sc.total)) }),
+      session: SESSION, decided_at: nowIso,
+      fill_basis: isPre ? 'next_open' : 'close',
+      entry_reason: `[${SESSION_KO} 판정 ${kstHM} KST · ${isPre ? '다음 시가 체결' : '당일 종가 체결'}] ${reasons.join(' · ')} || ` + entryReason({ ...sc, coverage: r.coverage, grade: sc.grade || gradeOf(Number(sc.total)) }),
       stop_price: stop,
       target_price: +(price + ATR_TARGET * a).toFixed(2),
       weight_pct: +weight.toFixed(2), risk_pct: finalRisk,
