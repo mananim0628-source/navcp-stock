@@ -39,7 +39,8 @@ async function fetchUniverse(tok) {
       if (!/0$/.test(code)) continue
       if (/(ETF|ETN|리츠|스팩|우$|우B$|배당|인버스|레버리지|선물)/i.test(name)) continue
       seen.add(code)
-      out.push({ code, name, market: 'KR' })
+      // 시가총액(억원) — 메이저/비메이저 구분·포트 시각화용
+      out.push({ code, name, market: 'KR', cap: Number(r.stck_avls) || null })
       if (out.length >= TARGET) break
     }
     if (out.length >= TARGET) break
@@ -472,6 +473,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const aiInfo = await dartAI(s.code)
       const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiInfo)
       Object.assign(scores, ex)   // 보조지표(점수 미합산·참고용)
+      scores.mcap = s.cap ?? null   // 시가총액(억원) — 메이저/비메이저 구분·포트 시각화
       await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.code, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price: scores.price, snapshot_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'

@@ -7,6 +7,7 @@ import JournalNote from '@/components/JournalNote'
 import TradeCalendar from '@/components/TradeCalendar'
 import RecentActivity from '@/components/RecentActivity'
 import TradeStats from '@/components/TradeStats'
+import PortfolioComposition from '@/components/PortfolioComposition'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: '매매일지 — 투자나침반 주식' }
@@ -21,7 +22,7 @@ type Trade = {
   stop_price: number | null; target_price: number | null
   exit_date: string | null; exit_price: number | null; exit_kind: string | null
   exit_reason: string | null; pnl_pct: number | null; holding_days: number | null
-  session: string | null; weight_pct: number | null; risk_pct: number | null
+  session: string | null; weight_pct: number | null; risk_pct: number | null; tier: string | null
   r_multiple: number | null; mae_pct: number | null; mfe_pct: number | null
 }
 
@@ -38,12 +39,20 @@ export default async function Journal() {
   const { data: priceRows } = openSyms.length
     ? await supabase.from('stock_score_cache').select('symbol,scores').in('symbol', openSyms)
     : { data: [] as any[] }
-  const priceOf = new Map((priceRows || []).map((r: any) => [r.symbol, Number(r.scores?.price)]))
+  const scMap = new Map((priceRows || []).map((r: any) => [r.symbol, r.scores]))
   const openPos = open.map(t => {
-    const cur = priceOf.get(t.symbol)
+    const sc: any = scMap.get(t.symbol)
+    const cur = Number(sc?.price)
     const un = cur && t.entry_price ? ((cur - Number(t.entry_price)) / Number(t.entry_price)) * 100 : null
     return { weight_pct: t.weight_pct, unrealized_pct: un != null ? +un.toFixed(2) : null }
   })
+  const composition = open.map(t => {
+    const sc: any = scMap.get(t.symbol)
+    const cur = Number(sc?.price)
+    const un = cur && t.entry_price ? ((cur - Number(t.entry_price)) / Number(t.entry_price)) * 100 : null
+    return { symbol: t.symbol, name: t.name, country: t.country, weight_pct: t.weight_pct, tier: t.tier, sector: sc?.sector ?? null, unrealized_pct: un != null ? +un.toFixed(2) : null }
+  })
+  const investedPct = composition.reduce((a, p) => a + (Number(p.weight_pct) || 0), 0)
 
   // 집계는 **종료된 기록만**. 표본이 적으면 수치를 앞세우지 않는다.
   const wins = closed.filter(t => Number(t.pnl_pct) > 0).length
@@ -135,6 +144,11 @@ export default async function Journal() {
               ? <>These are <b style={{ color: T.text }}>simulated records</b>: the rule bought and sold on paper so we can measure whether the score actually works. <b style={{ color: T.text }}>No real orders are placed and this is not a buy or sell signal.</b> Entry uses the closing price on the day the rule triggered; exits are judged only from candles after entry, so nothing is decided with hindsight.</>
               : <>이 화면은 <b style={{ color: T.text }}>시뮬레이션 기록</b>입니다. 우리 점수가 실제로 유효한지 측정하려고 규칙이 가상으로 사고팔았을 뿐입니다. <b style={{ color: T.text }}>실제 주문은 내지 않으며 매수·매도 신호가 아닙니다.</b> 진입가는 판정일 종가를 쓰고, 청산은 진입 이후 실제 캔들로만 판정합니다 — 결과를 미리 알고 유리하게 고르지 않습니다.</>}
           </p>
+        </div>
+
+        {/* 포트폴리오 구성 — 지금 내 포트가 어떻게 짜여 있나(핵심) */}
+        <div style={{ marginTop: 14 }}>
+          <PortfolioComposition positions={composition} cashPct={100 - investedPct} lang={lang} />
         </div>
 
         {/* 손익 달력 — 상단 배치(가장 먼저 보이는 자리) */}

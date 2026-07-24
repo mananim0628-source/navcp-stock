@@ -34,6 +34,11 @@ const MAX_WEIGHT = Number(process.env.PT_MAXW || 20)     // 1종목 비중 상�
 const PORT_HEAT = Number(process.env.PT_HEAT || 6)       // 전체 열려있는 위험 합 상한(%)
 // ── 현금 관리 — 현물이라 손절만이 답이 아니다. 급락 대응·물타기 여력으로 현금 쿠션을 남긴다.
 const MAX_INVESTED = Number(process.env.PT_MAXINV || 80) // 신규 진입은 총투입 80%까지만(현금 20% 보존)
+// 위성(비메이저) 배분 — 현금의 일부를 시총 하위지만 지표 강한 종목에 배정(코어=대형주 위성=중소형).
+// ⚠️ 아무 소형주가 아니라 '우리 지표상 강한'(모멘텀·상대강도 +) 종목만. 근거 없는 소형주 매수 금지.
+const SAT_ENABLED = process.env.PT_SAT !== '0'
+const SAT_BUDGET = Number(process.env.PT_SATBUDGET || 10)  // 위성에 배정할 최대 투입 비중(%)
+const SAT_CAP_MAX = Number(process.env.PT_SATCAP || 30000) // 시총 3조원(억원 30000) 미만을 비메이저로 본다
 // 물타기(추가매수): 보유 종목이 진입가 대비 크게 하락 + 점수가 여전히 유효하면 1회 추가 매수.
 const ADD_ENABLED = process.env.PT_ADD !== '0'
 const ADD_DROP = Number(process.env.PT_ADDDROP || 8)     // 진입가 대비 -8% 이상 하락 시 후보
@@ -239,7 +244,11 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     const macroFav = r.country === 'US' ? macroUS : macroKR
     const reasons = entrySignal(sc, macroFav)
     if (!reasons) continue
-    scored.push({ r, sc, reasons })
+    // 코어(대형주) vs 위성(비메이저): 시총 기준. 위성은 지표(모멘텀·상대강도)가 강한 종목만.
+    const cap = Number(sc.mcap)
+    const isSat = SAT_ENABLED && Number.isFinite(cap) && cap > 0 && cap < SAT_CAP_MAX
+      && (Number(sc.mom) > 0 || Number(sc.rs60) > 0)     // 비메이저는 '강한' 것만
+    scored.push({ r, sc, reasons, tier: isSat ? 'satellite' : 'core' })
   }
   // 점수 높은 순으로 채우되, 비중·전체위험(히트) 상한을 지킨다
   scored.sort((a, b) => Number(b.sc.total) - Number(a.sc.total))
@@ -247,12 +256,21 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   // 현재 열려있는 자본 투입 합(현물은 100% 초과 불가) — 신규 진입은 남은 현금 안에서만.
   const openWeight = stillOpenRows.reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)
   let usedCapital = openWeight
+  // 코어 예산 = 전체투입 - 위성예산. 위성은 별도 버킷으로 SAT_BUDGET까지만.
+  const coreCap = MAX_INVESTED - SAT_BUDGET
+  let usedSat = 0
+  // 코어 먼저, 그다음 위성 순으로 처리(위성이 코어 자리를 뺏지 않게)
+  const ordered = [...scored.filter(x => x.tier === 'core'), ...scored.filter(x => x.tier === 'satellite')]
 
   const news = []
-  for (const { r, sc, reasons } of scored) {
+  for (const { r, sc, reasons, tier } of ordered) {
     if (news.length >= room) break
     if (openHeat >= PORT_HEAT) break                     // 전체 위험 한도 도달 → 신규 중단
-    if (usedCapital >= MAX_INVESTED) break               // 현금 쿠션 보존 → 신규 중단(물타기 여력 확보)
+    // 버킷별 예산 체크: 코어는 coreCap, 위성은 SAT_BUDGET
+    const budgetLeft = tier === 'satellite'
+      ? Math.min(SAT_BUDGET - usedSat, MAX_INVESTED - usedCapital)
+      : Math.min(coreCap - (usedCapital - usedSat), MAX_INVESTED - usedCapital)
+    if (budgetLeft < 1) continue
     const price = Number(sc.price), a = Number(sc.atr14)
     const stop = +(price - ATR_STOP * a).toFixed(2)
     // 리스크 기반 비중: (시드 × 위험%) ÷ (손절까지 하락률). 상한·잔여히트·잔여현금으로 캡.
@@ -263,17 +281,17 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     // 남은 히트 여유로 캡
     const heatRoom = Math.max(0, PORT_HEAT - openHeat)
     if (weight * stopDistPct / 100 > heatRoom) weight = heatRoom / stopDistPct * 100
-    // 남은 현금으로 캡 (자본 100% 초과 방지)
-    const cashRoom = Math.max(0, MAX_INVESTED - usedCapital)
-    if (weight > cashRoom) weight = cashRoom
+    // 버킷 예산으로 캡
+    if (weight > budgetLeft) weight = budgetLeft
     weight = +weight.toFixed(2)
     if (weight < 1) continue                             // 너무 작은 비중은 건너뜀
     const finalRisk = +(weight * stopDistPct / 100).toFixed(2)
     openHeat += finalRisk
     usedCapital += weight
+    if (tier === 'satellite') usedSat += weight
     const invest = Math.round(SEED * weight / 100)
     news.push({
-      symbol: r.symbol, country: r.country, name: r.name, rule: RULE,
+      symbol: r.symbol, country: r.country, name: r.name, rule: RULE, tier,
       entry_date: today, entry_price: price,
       entry_score: Math.round(Number(sc.total)),
       entry_grade: sc.grade || gradeOf(Number(sc.total)),

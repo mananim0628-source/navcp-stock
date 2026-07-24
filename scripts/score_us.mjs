@@ -464,6 +464,8 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const disc = await secDisclosure(s.symbol)
       const { scores, coverage } = scoreStock({ price, chg, macro, fin, tech, deriv, disc, sup })
       Object.assign(scores, extras(rows, BENCH))   // 보조지표(점수 미합산·참고용)
+      // 시총: $ → 억원 환산(KR과 단위 통일, 환율 1350 근사)
+      scores.mcap = s.cap ? Math.round(s.cap * 1350 / 1e8) : null
       await upsert({ symbol: s.symbol, name: s.name, market: s.market, country: 'US', scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.symbol, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price, country: 'US', snapshot_at: now })
       console.log(`  ${String(s.symbol).padEnd(6)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage * 100)}% · PER ${scores.per} · 공매도 ${scores.short_ratio}% · 8-K(${disc?.pos ?? '-'}/${disc?.neg ?? '-'})`)
