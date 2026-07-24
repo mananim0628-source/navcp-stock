@@ -193,26 +193,33 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   // 점수 높은 순으로 채우되, 비중·전체위험(히트) 상한을 지킨다
   scored.sort((a, b) => Number(b.sc.total) - Number(a.sc.total))
 
+  // 현재 열려있는 자본 투입 합(현물은 100% 초과 불가) — 신규 진입은 남은 현금 안에서만.
+  const openWeight = stillOpenRows.reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)
+  let usedCapital = openWeight
+
   const news = []
   for (const { r, sc, reasons } of scored) {
     if (news.length >= room) break
     if (openHeat >= PORT_HEAT) break                     // 전체 위험 한도 도달 → 신규 중단
+    if (usedCapital >= 99) break                         // 현금 소진 → 신규 중단
     const price = Number(sc.price), a = Number(sc.atr14)
     const stop = +(price - ATR_STOP * a).toFixed(2)
-    // 리스크 기반 비중: (시드 × 위험%) ÷ (손절까지 하락률). 상한·잔여히트로 캡.
+    // 리스크 기반 비중: (시드 × 위험%) ÷ (손절까지 하락률). 상한·잔여히트·잔여현금으로 캡.
     const stopDistPct = ((price - stop) / price) * 100
     if (!(stopDistPct > 0)) continue
     let weight = (RISK_PCT / stopDistPct) * 100          // 시드 대비 투입 비중(%)
     weight = Math.min(weight, MAX_WEIGHT)
-    const realRisk = +(weight * stopDistPct / 100).toFixed(2)   // 이 비중에서 실제 감수 위험(%)
-    if (openHeat + realRisk > PORT_HEAT + 0.01) {
-      // 남은 히트 여유에 맞춰 비중 축소
-      const allow = Math.max(0, PORT_HEAT - openHeat)
-      if (allow < 0.1) continue
-      weight = +(allow / stopDistPct * 100).toFixed(2)
-    }
+    // 남은 히트 여유로 캡
+    const heatRoom = Math.max(0, PORT_HEAT - openHeat)
+    if (weight * stopDistPct / 100 > heatRoom) weight = heatRoom / stopDistPct * 100
+    // 남은 현금으로 캡 (자본 100% 초과 방지)
+    const cashRoom = Math.max(0, 100 - usedCapital)
+    if (weight > cashRoom) weight = cashRoom
+    weight = +weight.toFixed(2)
+    if (weight < 1) continue                             // 너무 작은 비중은 건너뜀
     const finalRisk = +(weight * stopDistPct / 100).toFixed(2)
     openHeat += finalRisk
+    usedCapital += weight
     const invest = Math.round(SEED * weight / 100)
     news.push({
       symbol: r.symbol, country: r.country, name: r.name, rule: RULE,

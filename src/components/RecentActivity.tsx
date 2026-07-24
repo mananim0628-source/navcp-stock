@@ -9,7 +9,9 @@ export type Activity = {
   exit_date: string | null; exit_kind: string | null; pnl_pct: number | null
 }
 
-export default function RecentActivity({ trades, lang = 'ko' }: { trades: Activity[]; lang?: 'ko' | 'en' }) {
+export type PortSummary = { seed: number; investedPct: number; unrealPct: number; realizedPct: number }
+
+export default function RecentActivity({ trades, summary, lang = 'ko' }: { trades: Activity[]; summary?: PortSummary; lang?: 'ko' | 'en' }) {
   const en = lang === 'en'
 
   // 진입/청산을 한 줄씩 이벤트로 펼쳐 최신순 정렬
@@ -32,6 +34,33 @@ export default function RecentActivity({ trades, lang = 'ko' }: { trades: Activi
       <div style={{ fontSize: 10.5, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
         {en ? 'Simulated records — not buy/sell signals' : '시뮬레이션 기록 · 매수/매도 신호 아님'}
       </div>
+
+      {summary && (() => {
+        const total = summary.unrealPct + summary.realizedPct        // 시드 대비 총손익%
+        const bal = summary.seed * (1 + total / 100)                 // 현재 평가 자본
+        const up = total >= 0
+        const won = (v: number) => Math.round(v).toLocaleString('ko-KR')
+        return (
+          <div style={{ marginTop: 10, padding: '10px 11px', borderRadius: 10, background: up ? 'rgba(40,199,111,0.10)' : 'rgba(240,101,74,0.10)', border: `1px solid ${T.cardBr}` }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontSize: 11, color: T.muted }}>{en ? 'Total P/L' : '총 손익'}</span>
+              <span style={{ fontSize: 17, fontWeight: 900, color: up ? T.green : T.red }}>{up ? '+' : ''}{total.toFixed(2)}%</span>
+              <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, padding: '2px 7px', borderRadius: 6, background: up ? T.green : T.red, color: '#0b1020' }}>
+                {up ? (en ? 'IN PROFIT' : '수익 중') : (en ? 'IN LOSS' : '손실 중')}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: T.muted, marginTop: 7 }}>
+              <span>{en ? 'Balance' : '현재 자본'} <b style={{ color: T.text }}>{won(bal)}{en ? '' : '원'}</b></span>
+              <span>{en ? 'of' : '/ 시드'} {won(summary.seed)}{en ? '' : '원'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: T.muted, marginTop: 4 }}>
+              <span>{en ? 'Unrealized' : '평가손익'} <b style={{ color: summary.unrealPct >= 0 ? T.green : T.red }}>{summary.unrealPct >= 0 ? '+' : ''}{summary.unrealPct.toFixed(2)}%</b></span>
+              <span>{en ? 'Realized' : '실현손익'} <b style={{ color: summary.realizedPct >= 0 ? T.green : T.red }}>{summary.realizedPct >= 0 ? '+' : ''}{summary.realizedPct.toFixed(2)}%</b></span>
+              <span>{en ? 'Invested' : '투입'} {summary.investedPct.toFixed(0)}%</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {shown.length === 0 ? (
         <div style={{ fontSize: 12, color: T.muted, marginTop: 12 }}>{en ? 'Nothing yet.' : '아직 기록이 없습니다.'}</div>

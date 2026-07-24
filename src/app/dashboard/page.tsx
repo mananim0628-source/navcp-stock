@@ -35,11 +35,29 @@ export default async function Home() {
     supabase.from('stock_score_cache').select('symbol,name,scores,coverage,cached_at').eq('country', 'US').limit(150),
     marketHours(),
     supabase.from('stock_score_history').select('d').order('d', { ascending: true }),
-    supabase.from('stock_paper_trade').select('id,symbol,name,country,status,entry_date,entry_score,exit_date,exit_kind,pnl_pct').order('entry_date', { ascending: false }).limit(40),
+    supabase.from('stock_paper_trade').select('id,symbol,name,country,status,entry_date,entry_score,exit_date,exit_kind,pnl_pct,weight_pct,entry_price,rule').order('entry_date', { ascending: false }).limit(120),
     idx('^KS11'), idx('^KQ11'), idx('^IXIC'), idx('^GSPC'), idx('^VIX'), idx('KRW=X'),
   ])
   const kr = (krData || []) as StockScore[]
   const us = (usData || []) as StockScore[]
+
+  // 모의매매 포트폴리오 요약 — 시드 대비 손익(엔진 SEED와 동일 1천만원 기준)
+  const SEED = 10_000_000
+  const paper = (paperRows || []) as any[]
+  const priceMap = new Map<string, number>([...kr, ...us].map(r => [r.symbol, Number((r.scores as any)?.price)]))
+  let unrealPct = 0, realizedPct = 0, investedPct = 0
+  for (const p of paper) {
+    if (p.rule !== 'context1') continue
+    const w = Number(p.weight_pct) || 0
+    if (p.status === 'open') {
+      investedPct += w
+      const cur = priceMap.get(p.symbol)
+      if (cur && p.entry_price) unrealPct += ((cur - Number(p.entry_price)) / Number(p.entry_price)) * w
+    } else if (p.status === 'closed' && p.pnl_pct != null) {
+      realizedPct += (Number(p.pnl_pct) / 100) * w
+    }
+  }
+  const paperSummary = { seed: SEED, investedPct: +investedPct.toFixed(1), unrealPct: +unrealPct.toFixed(2), realizedPct: +realizedPct.toFixed(2) }
 
   // 커버리지는 하드코딩하지 않고 **실제 적재값 평균**으로 표기(표시와 데이터가 어긋나지 않게)
   const avgCov = (rows: StockScore[]) => {
@@ -330,7 +348,7 @@ export default async function Home() {
        <aside className="chat-rail" style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'auto', maxHeight: 'calc(100vh - 104px)' }}>
          <div style={{ flex: '1 1 auto', minHeight: 260 }}><CommunityChat lang={lang} /></div>
          <div style={{ flexShrink: 0 }}>
-           <RecentActivity trades={(paperRows || []).map((t: any) => ({
+           <RecentActivity summary={paperSummary} trades={paper.filter(t => t.rule === 'context1').map((t: any) => ({
              id: t.id, symbol: t.symbol, name: t.name, country: t.country, status: t.status,
              entry_date: t.entry_date, entry_score: t.entry_score,
              exit_date: t.exit_date, exit_kind: t.exit_kind, pnl_pct: t.pnl_pct,
