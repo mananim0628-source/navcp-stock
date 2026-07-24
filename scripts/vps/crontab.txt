@@ -1,0 +1,7 @@
+30 0-6 * * 1-5 /root/run_stock_score.sh
+10 7 * * 1-5 /root/run_stock_score.sh
+0 8 * * 1-5 /root/run_us_score.sh
+20 7 * * 1-5 /root/run_alerts.sh
+10 8 * * 1-5 /root/run_alerts.sh
+25 7 * * 1-5 /root/run_paper.sh
+15 8 * * 1-5 /root/run_paper.sh
