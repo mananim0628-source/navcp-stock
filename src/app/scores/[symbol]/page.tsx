@@ -5,6 +5,9 @@ import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CandleChart from '@/components/CandleChart'
 import CommunityChat from '@/components/CommunityChat'
 import FactorRadar from '@/components/FactorRadar'
+import WatchButton from '@/components/WatchButton'
+import LangToggle from '@/components/LangToggle'
+import { getLang } from '@/lib/i18n'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,6 +47,7 @@ export default async function StockDetail({ params }: { params: { symbol: string
 
   // 퍼센타일 — 유니버스 대비 상위 몇 %인지 (Stockopedia 방식)
   type Peer = { symbol: string; name: string | null; scores: Record<string, any>; country?: string }
+  const lang = getLang()
   const isUS = (r as any).country === 'US'
   // 미국 수급은 국내(외국인·기관 순매수)와 **다른 지표**(거래량 기반 CMF) → 라벨을 분리 표기
   const FACTORS = isUS
@@ -90,6 +94,10 @@ export default async function StockDetail({ params }: { params: { symbol: string
         <div style={{ maxWidth: 820, margin: '0 auto', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <Link href="/scores" style={{ color: T.muted, textDecoration: 'none', fontSize: 20 }}>←</Link>
           <span style={{ fontWeight: 800, fontSize: 17 }}>{r.name} <span style={{ color: T.muted, fontSize: 13, fontWeight: 400 }}>{r.symbol} · {r.market}</span></span>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+            <WatchButton symbol={r.symbol} country={isUS ? 'US' : 'KR'} lang={lang} />
+            <LangToggle lang={lang} />
+          </span>
         </div>
       </header>
 
@@ -102,7 +110,7 @@ export default async function StockDetail({ params }: { params: { symbol: string
           </div>
           <div style={{ flex: 1, minWidth: 180 }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: col }}>
-              {gradeLabel(total)}
+              {gradeLabel(total, lang)}
               {topPct != null && <span style={{ fontSize: 12, fontWeight: 700, color: T.teal, marginLeft: 8 }}>유니버스 상위 {topPct}%</span>}
             </div>
             <div style={{ fontSize: 30, fontWeight: 800, marginTop: 6 }}>{won(price)}</div>
