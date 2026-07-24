@@ -3,6 +3,7 @@ import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CommunityChat from '@/components/CommunityChat'
 import MarketClock from '@/components/MarketClock'
+import FilingFeed from '@/components/FilingFeed'
 import { marketHours } from '@/lib/toss'
 import { getLang, tr } from '@/lib/i18n'
 import LangToggle from '@/components/LangToggle'
@@ -60,14 +61,21 @@ export default async function Home() {
   }
   const byDt = (a: Feed, b: Feed) => String(b.d.dt || '').localeCompare(String(a.d.dt || ''))
   good.sort(byDt); bad.sort(byDt)
-  // 국내 공시가 훨씬 잦아 그대로 자르면 미국이 안 보인다 → 시장별로 균형 있게 섞는다.
-  const mix = (list: Feed[], n = 6) => {
+  // 국내 공시가 훨씬 잦다 → 앞부분(접힌 상태에서 보이는 구간)에 미국이 반드시 들어가도록 교차 배치.
+  // 뒤쪽은 날짜순 그대로 이어 붙여 '펼치기'에서 전체를 볼 수 있게 한다.
+  const interleave = (list: Feed[], head = 6) => {
     const k = list.filter(x => !x.us), u = list.filter(x => x.us)
-    const half = Math.ceil(n / 2)
-    const uTake = u.slice(0, Math.min(half, u.length))
-    return [...k.slice(0, n - uTake.length), ...uTake].sort(byDt)
+    const out: Feed[] = []
+    for (let i = 0; out.length < head && (i < k.length || i < u.length); i++) {
+      if (i < k.length) out.push(k[i])
+      if (out.length < head && i < u.length) out.push(u[i])
+    }
+    const rest = list.filter(x => !out.includes(x)).sort(byDt)
+    return [...out, ...rest]
   }
-  const goodMix = mix(good), badMix = mix(bad)
+  const toItem = (f: Feed) => ({ symbol: f.symbol, name: f.name, nm: f.d.nm, dt: f.d.dt, us: f.us })
+  const goodMix = interleave(good).map(toItem)
+  const badMix = interleave(bad).map(toItem)
 
   // 기관·외국인 순매수 — 국내 전용(미국은 해당 개념 없음)
   const flow = [...kr].filter(r => (r.scores as any)?.supply_dir === '순매수')
@@ -231,19 +239,8 @@ export default async function Home() {
 
         {/* 공시 피드 (국내 DART + 미국 SEC 8-K) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14, marginTop: 26 }}>
-          {[{ t: t('goodNews'), list: goodMix, c: T.green }, { t: t('badNews'), list: badMix, c: T.red }].map(g => (
-            <div key={g.t} style={{ ...cardStyle, borderRadius: 14, padding: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: g.c, marginBottom: 10 }}>{g.t}</div>
-              {g.list.length ? g.list.slice(0, 6).map((f, i) => (
-                <Link key={i} href={`/scores/${f.symbol}`} style={{ display: 'flex', gap: 7, padding: '7px 0', borderTop: i ? `1px solid ${T.cardBr}` : 'none', textDecoration: 'none', color: T.text }}>
-                  <Badge us={f.us} />
-                  <span style={{ fontWeight: 700, fontSize: 13, minWidth: 60, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <span style={{ fontSize: 13, color: T.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.d.nm}</span>
-                  <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>{fmtDt(f.d.dt)}</span>
-                </Link>
-              )) : <div style={{ fontSize: 13, color: T.muted, padding: '8px 0' }}>집계된 공시가 아직 없어요.</div>}
-            </div>
-          ))}
+          <FilingFeed title={t('goodNews')} items={goodMix} color={T.green} empty={t('noFilings')} lang={lang} />
+          <FilingFeed title={t('badNews')} items={badMix} color={T.red} empty={t('noFilings')} lang={lang} />
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{t('filingSource')}</div>
 
