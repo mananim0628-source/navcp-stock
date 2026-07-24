@@ -95,15 +95,15 @@ export default async function Home() {
   let freshTxt = ''
   if (latest) {
     const mins = Math.max(0, Math.round((Date.now() - new Date(latest).getTime()) / 60000))
-    freshTxt = mins < 60 ? `${mins}분 전 갱신` : mins < 1440 ? `${Math.round(mins / 60)}시간 전 갱신` : `${Math.round(mins / 1440)}일 전 갱신`
+    freshTxt = mins < 60 ? `${mins}${t('updatedAgoMin')}` : mins < 1440 ? `${Math.round(mins / 60)}${t('updatedAgoHour')}` : `${Math.round(mins / 1440)}${t('updatedAgoDay')}`
   }
 
   const regimeOf = (ix: Awaited<ReturnType<typeof idx>>) => {
-    if (!ix || !vix) return { label: '중립', col: T.amber, note: '판정 데이터 부족' }
-    if (ix.trend === 'up' && vix.last < 20) return { label: '우호', col: T.green, note: '지수 20일선 위 · 변동성 안정' }
-    if (ix.trend === 'down' && vix.last > 25) return { label: '경계', col: T.red, note: '지수 약세 · 변동성 확대' }
-    if (ix.trend === 'down') return { label: '주의', col: T.amber, note: '지수 20일선 아래 · 신중 접근' }
-    return { label: '우호', col: T.green, note: '지수 상승 추세 유지' }
+    if (!ix || !vix) return { label: t('gNeutral'), col: T.amber, note: t('regimeNoData') }
+    if (ix.trend === 'up' && vix.last < 20) return { label: t('gFav'), col: T.green, note: t('regimeUpStable') }
+    if (ix.trend === 'down' && vix.last > 25) return { label: t('gWarn'), col: T.red, note: t('regimeDownVol') }
+    if (ix.trend === 'down') return { label: t('gCaution'), col: T.amber, note: t('regimeDown') }
+    return { label: t('gFav'), col: T.green, note: t('regimeUp') }
   }
   const krRegime = regimeOf(kospi), usRegime = regimeOf(sp500)
   const fmtDt = (dt?: string) => dt && dt.length === 8 ? `${+dt.slice(4, 6)}/${+dt.slice(6, 8)}` : ''
@@ -146,8 +146,8 @@ export default async function Home() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Badge us={isUs} />
         <span style={{ fontSize: 17, fontWeight: 800 }}>{title}</span>
-        <span style={{ fontSize: 11, color: T.muted }}>{rows.length}종목 · 커버리지 {cov}</span>
-        <Link href={`/scores?country=${isUs ? 'US' : 'KR'}`} style={{ marginLeft: 'auto', color: T.teal, fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>상세 보기 →</Link>
+        <span style={{ fontSize: 11, color: T.muted }}>{rows.length} {t('stocksUnit')} · {t('coverage')} {cov}</span>
+        <Link href={`/scores?country=${isUs ? 'US' : 'KR'}`} style={{ marginLeft: 'auto', color: T.teal, fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>{t('viewDetail')}</Link>
       </div>
       <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
         {top.map(r => {
@@ -158,7 +158,7 @@ export default async function Home() {
               <span style={{ width: 36, height: 36, borderRadius: '50%', border: `2.5px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, color: col, flexShrink: 0 }}>{total}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.symbol}</span>
-                <span style={{ display: 'block', fontSize: 11, color: col, fontWeight: 700 }}>{gradeLabel(total)}</span>
+                <span style={{ display: 'block', fontSize: 11, color: col, fontWeight: 700 }}>{gradeLabel(total, lang)}</span>
               </span>
               <span style={{ textAlign: 'right', flexShrink: 0 }}>
                 <span style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>{priceTxt(r, isUs)}</span>
@@ -170,7 +170,7 @@ export default async function Home() {
       </div>
       {/* 시장별 급등/급락 요약 */}
       <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-        {[{ t: '급등', list: movers(rows, true), c: T.green }, { t: '급락', list: movers(rows, false), c: T.red }].map(g => (
+        {[{ t: t('surge'), list: movers(rows, true), c: T.green }, { t: t('plunge'), list: movers(rows, false), c: T.red }].map(g => (
           <div key={g.t} style={{ flex: 1, minWidth: 130 }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: g.c, marginBottom: 4 }}>{g.t}</div>
             {g.list.map(r => (
@@ -226,7 +226,7 @@ export default async function Home() {
           <MarketPanel title={t("usStocks")} rows={us} top={usTop} isUs={true} cov={avgCov(us)} />
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
-          ※ 국내·미국은 측정 가능한 데이터가 달라 커버리지가 다릅니다. <b style={{ color: T.text }}>두 시장의 점수를 직접 비교하지 마세요.</b>
+          {t('crossMarketWarn')}
         </div>
 
         {/* 공시 피드 (국내 DART + 미국 SEC 8-K) */}
@@ -245,12 +245,12 @@ export default async function Home() {
             </div>
           ))}
         </div>
-        <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>※ 국내 DART 전자공시 · 미국 SEC 8-K 공식 항목코드 기반 자동 분류. 주가 방향을 보장하지 않습니다.</div>
+        <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{t('filingSource')}</div>
 
         {/* 업종 흐름 (국내) */}
         {sectors.length > 0 && (
           <>
-            <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 26, marginBottom: 8 }}>🇰🇷 국내 업종 흐름</div>
+            <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 26, marginBottom: 8 }}>{t('sectorFlow')}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8 }}>
               {sectors.map(s => {
                 const on = Math.min(1, Math.abs(s.chg) / 3)
@@ -259,7 +259,7 @@ export default async function Home() {
                   <div key={s.name} style={{ borderRadius: 10, padding: '10px 12px', background: bg, border: `1px solid ${T.cardBr}`, gridColumn: `span ${Math.min(3, Math.max(1, Math.round(s.n / 3)))}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
                     <div style={{ fontSize: 15, fontWeight: 800, color: s.chg >= 0 ? T.green : T.red, marginTop: 2 }}>{s.chg > 0 ? '+' : ''}{s.chg}%</div>
-                    <div style={{ fontSize: 10, color: T.muted }}>{s.n}종목 · 평균 {s.tot}점</div>
+                    <div style={{ fontSize: 10, color: T.muted }}>{s.n} {t('stocksUnit')} · {t('sectorAvg')} {s.tot}{t('points')}</div>
                   </div>
                 )
               })}
@@ -270,16 +270,16 @@ export default async function Home() {
         {/* 기관·외국인 순매수 (국내 전용) */}
         {flow.length > 0 && (
           <>
-            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>🇰🇷 기관·외국인 순매수 상위</h2>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>미국은 외국인·기관 순매수 구분 개념이 없어 국내에만 제공됩니다.</div>
+            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{t('flowTitle')}</h2>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{t('flowNote')}</div>
             <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
               {flow.map(r => {
                 const total = Math.round(num(r.scores?.total))
                 return (
                   <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ ...cardStyle, borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: T.text }}>
                     <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{r.name || r.symbol}</span>
-                    <span style={{ fontSize: 12, color: T.green, fontWeight: 700 }}>순매수 {(r.scores as any)?.supply_days ?? ''}일</span>
-                    <span style={{ fontSize: 12, color: gradeColor(total), fontWeight: 700 }}>{total}점</span>
+                    <span style={{ fontSize: 12, color: T.green, fontWeight: 700 }}>{t('netBuy')} {(r.scores as any)?.supply_days ?? ''}{t('days')}</span>
+                    <span style={{ fontSize: 12, color: gradeColor(total), fontWeight: 700 }}>{total}{t('points')}</span>
                     <span style={{ color: T.muted, fontSize: 16 }}>›</span>
                   </Link>
                 )
@@ -292,36 +292,32 @@ export default async function Home() {
         <div style={{ ...cardStyle, borderRadius: 16, padding: 18, marginTop: 26 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 800 }}>{t('perfTitle')}</span>
-            <span style={{ fontSize: 12, color: T.muted }}>등급별 이후 20거래일 수익률을 실측해 공개합니다</span>
+            <span style={{ fontSize: 12, color: T.muted }}>{t('perfSub')}</span>
           </div>
           <div style={{ marginTop: 12, height: 8, borderRadius: 5, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
             <div style={{ width: `${recPct}%`, height: '100%', background: T.teal }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 6 }}>
-            <span style={{ color: T.text, fontWeight: 700 }}>기록 {recDays}일차 / 최소 {NEEDED}거래일</span>
-            <span style={{ color: T.muted }}>{recFrom ? `${recFrom} 시작` : ''}</span>
+            <span style={{ color: T.text, fontWeight: 700 }}>{t('perfDay')} {recDays}{t('perfOf')}</span>
+            <span style={{ color: T.muted }}>{recFrom ? `${recFrom} ${t('perfStart')}` : ''}</span>
           </div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 10, lineHeight: 1.7 }}>
-            매일 전 종목 점수를 스냅샷으로 저장하고 있습니다. <b style={{ color: T.text }}>표본이 부족한 지금은 수치를 표시하지 않습니다</b> —
-            며칠치로 계산한 승률·수익률은 통계가 아니라 소음이고, 그걸 성과처럼 보여주는 건 정직하지 않으니까요.
-            {NEEDED}거래일이 쌓이면 <b style={{ color: T.text }}>강한우호·우호·중립·주의·경계 각 등급의 실제 평균 수익률</b>을 이 자리에 그대로 공개합니다.
+            {t('perfBody')}
           </div>
         </div>
 
         <div style={{ ...cardStyle, borderRadius: 14, padding: 18, marginTop: 14 }}>
           <div style={{ fontSize: 14, lineHeight: 1.8, color: T.muted }}>
-            7팩터(거시·수급·재무·공시·공매도·기술·전략)로 국내·미국 종목을 100점 스코어링하는 <b style={{ color: T.text }}>제 분석 화면을 무료로 공개</b>합니다.
-            점수가 높다고 매수 신호가 아니라, 제가 시장을 어떻게 읽는지 투명하게 보여드리는 도구예요. <Link href="/method" style={{ color: T.teal }}>방법론 보기 →</Link>
+            {t('introBody')} <Link href="/method" style={{ color: T.teal }}>{t('methodLink')}</Link>
           </div>
         </div>
 
         <p style={{ fontSize: 12, color: T.muted, marginTop: 22, lineHeight: 1.7, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14 }}>
-          ⚠️ 정보 제공·분석·교육 목적입니다. 특정 종목의 매수·매도 권유가 아니며, 투자 판단과 책임은 본인에게 있습니다.
-          운영자는 제도권 금융기관·투자자문업자가 아니며, 대가를 받는 투자자문·리딩·투자일임을 제공하지 않습니다.
-          <br /><Link href="/privacy" style={{ color: T.muted, textDecoration: 'underline' }}>개인정보 처리방침</Link>
+          {t('disclaimer')}
+          <br /><Link href="/privacy" style={{ color: T.muted, textDecoration: 'underline' }}>{t('privacy')}</Link>
         </p>
        </main>
-       <aside className="chat-rail"><CommunityChat /></aside>
+       <aside className="chat-rail"><CommunityChat lang={lang} /></aside>
       </div>
     </div>
   )

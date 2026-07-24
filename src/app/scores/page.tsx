@@ -47,10 +47,10 @@ export default async function ScoresPage({ searchParams }: { searchParams?: { co
           </p>
         )}
         <p style={{ fontSize: 13, color: T.muted, marginTop: 6, lineHeight: 1.6 }}>
-          제가 시장을 읽는 화면을 그대로 공개합니다. 점수가 높다고 매수 신호가 아니며, <b style={{ color: T.text }}>커버리지(측정 충실도)</b>를 함께 보세요.
+          {t('scoresLead')}
         </p>
 
-        <ScoresList rows={rows} />
+        <ScoresList rows={rows} lang={lang} isUS={country === 'US'} />
 
         <p style={{ fontSize: 12, color: T.muted, marginTop: 28, lineHeight: 1.7, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14 }}>
           ⚠️ 정보 제공·분석·교육 목적. 특정 종목 매수·매도 권유가 아니며 투자 판단과 책임은 본인 몫입니다.

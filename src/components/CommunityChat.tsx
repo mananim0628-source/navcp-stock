@@ -16,7 +16,8 @@ function makeNick() {
 }
 
 // symbol 지정 시 해당 종목 전용 방(Stocktwits ticker rooms), 없으면 전체방.
-export default function CommunityChat({ symbol, title }: { symbol?: string; title?: string } = {}) {
+export default function CommunityChat({ symbol, title, lang = 'ko' }: { symbol?: string; title?: string; lang?: 'ko' | 'en' } = {}) {
+  const en = lang === 'en'
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [tag, setTag] = useState<'bull' | 'bear' | null>(null)
   const [text, setText] = useState('')
@@ -83,26 +84,26 @@ export default function CommunityChat({ symbol, title }: { symbol?: string; titl
     <div style={{ ...cardStyle, borderRadius: 14, padding: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <div style={{ padding: '12px 14px', borderBottom: `1px solid ${T.cardBr}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: T.green }} />
-        <span onDoubleClick={toggleMod} style={{ fontWeight: 800, fontSize: 14, cursor: 'default', userSelect: 'none' }}>{title || '실시간 커뮤니티'}</span>
-        {mod && <span style={{ fontSize: 10, color: T.gold, fontWeight: 700 }}>운영자</span>}
+        <span onDoubleClick={toggleMod} style={{ fontWeight: 800, fontSize: 14, cursor: 'default', userSelect: 'none' }}>{title || (en ? 'Live Community' : '실시간 커뮤니티')}</span>
+        {mod && <span style={{ fontSize: 10, color: T.gold, fontWeight: 700 }}>{en ? 'Admin' : '운영자'}</span>}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: T.muted }}>{nick}</span>
       </div>
 
       <div ref={boxRef} style={{ flex: 1, overflowY: 'auto', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 9, minHeight: 220 }}>
-        {msgs.length === 0 && <div style={{ fontSize: 13, color: T.muted, margin: 'auto', textAlign: 'center' }}>첫 메시지를 남겨보세요.<br />익명으로 자유롭게 대화해요.</div>}
+        {msgs.length === 0 && <div style={{ fontSize: 13, color: T.muted, margin: 'auto', textAlign: 'center' }}>{en ? <>Be the first to post.<br />Chat freely and anonymously.</> : <>첫 메시지를 남겨보세요.<br />익명으로 자유롭게 대화해요.</>}</div>}
         {msgs.map(m => {
           const mine = m.nick === nick
           return (
             <div key={m.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
               <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 2, textAlign: mine ? 'right' : 'left' }}>
-                {mine ? '나' : m.nick} · {hhmm(m.created_at)}
+                {mine ? (en ? 'Me' : '나') : m.nick} · {hhmm(m.created_at)}
                 {mod && <button onClick={() => removeMsg(m.id)} title="삭제"
                   style={{ marginLeft: 6, background: 'none', border: 'none', color: T.red, cursor: 'pointer', fontSize: 11, padding: 0 }}>🗑</button>}
               </div>
               <div style={{ fontSize: 13.5, lineHeight: 1.5, padding: '7px 11px', borderRadius: 12, wordBreak: 'break-word',
                 background: mine ? T.teal : 'rgba(255,255,255,0.06)', color: mine ? T.onTeal : T.text }}>
                 {m.tag && <span style={{ fontSize: 10.5, fontWeight: 800, marginRight: 6, padding: '1px 5px', borderRadius: 5,
-                  background: m.tag === 'bull' ? T.green : T.red, color: '#06121f' }}>{m.tag === 'bull' ? '🐂 강세' : '🐻 약세'}</span>}
+                  background: m.tag === 'bull' ? T.green : T.red, color: '#06121f' }}>{m.tag === 'bull' ? en ? '🐂 Bull' : '🐂 강세' : en ? '🐻 Bear' : '🐻 약세'}</span>}
                 {m.body}
               </div>
             </div>
@@ -113,25 +114,25 @@ export default function CommunityChat({ symbol, title }: { symbol?: string; titl
       {/* 강세/약세 태그 (종목방에서만) */}
       {symbol && (
         <div style={{ display: 'flex', gap: 6, padding: '8px 10px 0' }}>
-          {([['bull', '🐂 강세', T.green], ['bear', '🐻 약세', T.red]] as const).map(([k, label, c]) => (
+          {([['bull', en ? '🐂 Bull' : '🐂 강세', T.green], ['bear', en ? '🐻 Bear' : '🐻 약세', T.red]] as const).map(([k, label, c]) => (
             <button key={k} onClick={() => setTag(tag === k ? null : k)}
               style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
                 background: tag === k ? c : 'transparent', color: tag === k ? '#06121f' : T.muted, border: `1px solid ${tag === k ? c : T.cardBr}` }}>{label}</button>
           ))}
-          <span style={{ fontSize: 10.5, color: T.muted, alignSelf: 'center' }}>내 견해를 태그로(선택)</span>
+          <span style={{ fontSize: 10.5, color: T.muted, alignSelf: 'center' }}>{en ? 'Tag your view (optional)' : '내 견해를 태그로(선택)'}</span>
         </div>
       )}
       {err && <div style={{ padding: '6px 12px', fontSize: 11.5, color: T.red, borderTop: `1px solid ${T.cardBr}` }}>⚠️ {err}</div>}
       <div style={{ borderTop: err ? 'none' : `1px solid ${T.cardBr}`, padding: 10, display: 'flex', gap: 8 }}>
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send() }}
-          maxLength={300} placeholder="메시지 입력…"
+          maxLength={300} placeholder={en ? "Type a message…" : "메시지 입력…"}
           style={{ flex: 1, padding: '9px 12px', borderRadius: 10, fontSize: 13.5, background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.cardBr}`, color: T.text, outline: 'none' }} />
         <button onClick={send} disabled={sending || !text.trim()}
           style={{ padding: '0 16px', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer', border: 'none',
-            background: text.trim() ? T.teal : 'rgba(255,255,255,0.06)', color: text.trim() ? T.onTeal : T.muted }}>전송</button>
+            background: text.trim() ? T.teal : 'rgba(255,255,255,0.06)', color: text.trim() ? T.onTeal : T.muted }}>{en ? 'Send' : '전송'}</button>
       </div>
       <div style={{ padding: '0 12px 10px', fontSize: 10.5, color: T.muted, lineHeight: 1.5 }}>
-        ※ 익명 게시판입니다. 특정 종목 매수·매도 권유(리딩) 및 허위·비방은 삼가주세요.
+        {en ? '※ Anonymous board. Please avoid buy/sell solicitation, false claims and defamation.' : '※ 익명 게시판입니다. 특정 종목 매수·매도 권유(리딩) 및 허위·비방은 삼가주세요.'}
       </div>
     </div>
   )

@@ -26,10 +26,11 @@ export function gradeColor(total: number): string {
   if (total >= 56) return T.amber
   return T.red
 }
-export function gradeLabel(total: number): string {
-  if (total >= 78) return '강한 우호'
-  if (total >= 66) return '우호'
-  if (total >= 56) return '중립'
-  if (total >= 48) return '주의'
-  return '경계'
+export function gradeLabel(total: number, lang: 'ko' | 'en' = 'ko'): string {
+  const en = lang === 'en'
+  if (total >= 78) return en ? 'Strongly Favorable' : '강한 우호'
+  if (total >= 66) return en ? 'Favorable' : '우호'
+  if (total >= 56) return en ? 'Neutral' : '중립'
+  if (total >= 48) return en ? 'Caution' : '주의'
+  return en ? 'Warning' : '경계'
 }

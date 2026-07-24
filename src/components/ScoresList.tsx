@@ -5,15 +5,6 @@ import Link from 'next/link'
 import { type StockScore } from '@/lib/supabase'
 import { T, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 
-// 등급 필터 바 + 종목 카드 리스트. 강한우호/우호/중립/주의/경계.
-const BANDS: { key: string; label: string; test: (t: number) => boolean }[] = [
-  { key: 'all', label: '전체', test: () => true },
-  { key: 's', label: '강한 우호', test: t => t >= 78 },
-  { key: 'f', label: '우호', test: t => t >= 66 && t < 78 },
-  { key: 'n', label: '중립', test: t => t >= 56 && t < 66 },
-  { key: 'c', label: '주의', test: t => t >= 48 && t < 56 },
-  { key: 'w', label: '경계', test: t => t < 48 },
-]
 
 // 다중 조건 필터(Finviz 방식). 밸류·공매도는 절대값이 아니라 **유니버스 상대 백분위**로 판정 —
 // 시장 전체가 고평가/저평가로 이동해도 필터가 무의미해지지 않게(고정 임계 하드코딩 회피).
@@ -23,7 +14,17 @@ function pctThreshold(vals: number[], p: number): number | null {
   return v[Math.min(v.length - 1, Math.floor(v.length * p))]
 }
 
-export default function ScoresList({ rows }: { rows: StockScore[] }) {
+export default function ScoresList({ rows, lang = 'ko', isUS = false }: { rows: StockScore[]; lang?: 'ko' | 'en'; isUS?: boolean }) {
+  const en = lang === 'en'
+  // 등급 필터 바 (라벨은 언어별)
+  const BANDS: { key: string; label: string; test: (t: number) => boolean }[] = [
+    { key: 'all', label: en ? 'All' : '전체', test: () => true },
+    { key: 's', label: en ? 'Strongly Favorable' : '강한 우호', test: t => t >= 78 },
+    { key: 'f', label: en ? 'Favorable' : '우호', test: t => t >= 66 && t < 78 },
+    { key: 'n', label: en ? 'Neutral' : '중립', test: t => t >= 56 && t < 66 },
+    { key: 'c', label: en ? 'Caution' : '주의', test: t => t >= 48 && t < 56 },
+    { key: 'w', label: en ? 'Warning' : '경계', test: t => t < 48 },
+  ]
   const [band, setBand] = useState('all')
   const [q, setQ] = useState('')
   const [on, setOn] = useState<string[]>([])
@@ -37,18 +38,18 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
   const shortCut = pctThreshold(rows.map(r => Number(r.scores?.short_ratio)), 0.3)
   const roeCut = pctThreshold(rows.map(r => Number(r.scores?.roe)), 0.7)
   const FILTERS: { key: string; label: string; test: (s: any) => boolean }[] = [
-    { key: 'buy', label: '기관·외국인 순매수', test: s => s?.supply_dir === '순매수' },
-    { key: 'per', label: perCut ? `저PER (${Math.round(perCut)} 이하)` : '저PER', test: s => perCut != null && Number(s?.per) > 0 && Number(s?.per) <= perCut },
-    { key: 'roe', label: roeCut ? `고ROE (${Math.round(roeCut)}% 이상)` : '고ROE', test: s => roeCut != null && Number(s?.roe) >= roeCut },
-    { key: 'short', label: shortCut ? `공매도 낮음 (${shortCut.toFixed(1)}% 미만)` : '공매도 낮음', test: s => shortCut != null && Number(s?.short_ratio) < shortCut },
-    { key: 'up', label: '20일선 위', test: s => Number(s?.price) > Number(s?.ma20) },
-    { key: 'cov', label: '커버리지 90%+', test: s => Number(s?.coverage) >= 0.9 },
+    { key: 'buy', label: en ? 'Institutional net buying' : '기관·외국인 순매수', test: s => s?.supply_dir === '순매수' },
+    { key: 'per', label: perCut ? en ? `Low PER (≤${Math.round(perCut)})` : `저PER (${Math.round(perCut)} 이하)` : en ? 'Low PER' : '저PER', test: s => perCut != null && Number(s?.per) > 0 && Number(s?.per) <= perCut },
+    { key: 'roe', label: roeCut ? en ? `High ROE (≥${Math.round(roeCut)}%)` : `고ROE (${Math.round(roeCut)}% 이상)` : en ? 'High ROE' : '고ROE', test: s => roeCut != null && Number(s?.roe) >= roeCut },
+    { key: 'short', label: shortCut ? en ? `Low short (<${shortCut.toFixed(1)}%)` : `공매도 낮음 (${shortCut.toFixed(1)}% 미만)` : en ? 'Low short' : '공매도 낮음', test: s => shortCut != null && Number(s?.short_ratio) < shortCut },
+    { key: 'up', label: en ? 'Above 20D MA' : '20일선 위', test: s => Number(s?.price) > Number(s?.ma20) },
+    { key: 'cov', label: en ? 'Coverage 90%+' : '커버리지 90%+', test: s => Number(s?.coverage) >= 0.9 },
   ]
   const filtered = rows
     .filter(r => active.test(Math.round(num(r.scores?.total))))
     .filter(r => !query || (r.name || '').toLowerCase().includes(query) || (r.symbol || '').includes(query))
     .filter(r => on.every(k => FILTERS.find(f => f.key === k)!.test({ ...r.scores, coverage: r.coverage })))
-  const count = (b: typeof BANDS[number]) => rows.filter(r => b.test(Math.round(num(r.scores?.total)))).length
+  const count = (b: { test: (t: number) => boolean }) => rows.filter(r => b.test(Math.round(num(r.scores?.total)))).length
   // 퍼센타일(유니버스 대비 상위 %) — Stockopedia StockRank 방식
   const totals = rows.map(r => Math.round(num(r.scores?.total))).filter(Number.isFinite)
   const topPct = (t: number) => totals.length > 1
@@ -57,7 +58,7 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
   return (
     <>
       {/* 검색 */}
-      <input value={q} onChange={e => setQ(e.target.value)} placeholder="종목명 · 코드 검색"
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder={en ? "Search name or symbol" : "종목명 · 코드 검색"}
         style={{ width: '100%', marginTop: 18, padding: '11px 14px', borderRadius: 12, fontSize: 14,
           background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.cardBr}`, color: T.text, outline: 'none' }} />
       {/* 필터 바 */}
@@ -77,7 +78,7 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
 
       {/* 다중 조건 필터 */}
       <div style={{ display: 'flex', gap: 7, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 11.5, color: T.muted }}>조건</span>
+        <span style={{ fontSize: 11.5, color: T.muted }}>{en ? 'Filters' : '조건'}</span>
         {FILTERS.map(f => {
           const sel = on.includes(f.key)
           return (
@@ -88,12 +89,12 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
             </button>
           )
         })}
-        {on.length > 0 && <button onClick={() => setOn([])} style={{ background: 'none', border: 'none', color: T.red, fontSize: 11.5, cursor: 'pointer', fontWeight: 700 }}>초기화</button>}
+        {on.length > 0 && <button onClick={() => setOn([])} style={{ background: 'none', border: 'none', color: T.red, fontSize: 11.5, cursor: 'pointer', fontWeight: 700 }}>{en ? 'Reset' : '초기화'}</button>}
       </div>
-      <div style={{ fontSize: 12, color: T.muted, marginTop: 10 }}>{filtered.length}종목</div>
+      <div style={{ fontSize: 12, color: T.muted, marginTop: 10 }}>{filtered.length} {en ? 'stocks' : '종목'}</div>
 
       {filtered.length === 0 ? (
-        <div style={{ ...cardStyle, borderRadius: 14, padding: 24, marginTop: 16, textAlign: 'center', color: T.muted }}>이 등급의 종목이 없어요.</div>
+        <div style={{ ...cardStyle, borderRadius: 14, padding: 24, marginTop: 16, textAlign: 'center', color: T.muted }}>{en ? 'No stocks in this grade.' : '이 등급의 종목이 없어요.'}</div>
       ) : (
         <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
           {filtered.map(r => {
@@ -101,7 +102,9 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
             const cov = r.coverage != null ? Math.round(Number(r.coverage) * 100) : null
             const low = cov != null && cov < 85
             const col = gradeColor(total)
-            const price = r.scores?.price != null ? Number(r.scores.price).toLocaleString('ko-KR') + '원' : null
+            const price = r.scores?.price == null ? null
+              : isUS ? '$' + Number(r.scores.price).toLocaleString('en-US', { maximumFractionDigits: 2 })
+              : Number(r.scores.price).toLocaleString('ko-KR') + '원'
             const chg = r.scores?.chg != null ? Number(r.scores.chg) : null
             return (
               <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ ...cardStyle, borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 14, textDecoration: 'none', color: T.text }}>
@@ -109,9 +112,9 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{r.name || r.symbol} <span style={{ color: T.muted, fontSize: 12 }}>{r.symbol}</span></div>
                   <div style={{ fontSize: 12, marginTop: 2 }}>
-                    <span style={{ color: col, fontWeight: 700 }}>{gradeLabel(total)}</span>
-                    {topPct(total) != null && <span style={{ color: T.teal, marginLeft: 8, fontWeight: 700 }}>상위 {topPct(total)}%</span>}
-                    {cov != null && <span style={{ color: low ? T.red : T.muted, marginLeft: 8 }}>커버리지 {cov}%{low ? ' ⚠️' : ''}</span>}
+                    <span style={{ color: col, fontWeight: 700 }}>{gradeLabel(total, lang)}</span>
+                    {topPct(total) != null && <span style={{ color: T.teal, marginLeft: 8, fontWeight: 700 }}>{en ? 'Top' : '상위'} {topPct(total)}%</span>}
+                    {cov != null && <span style={{ color: low ? T.red : T.muted, marginLeft: 8 }}>{en ? 'Cov' : '커버리지'} {cov}%{low ? ' ⚠️' : ''}</span>}
                   </div>
                 </div>
                 {price && (
