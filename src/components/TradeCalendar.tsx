@@ -8,7 +8,7 @@ import { T, cardStyle } from '@/lib/theme'
 //    ① 동일 비중(자본 ÷ 동시보유 상한)으로 1종목씩 담았다고 가정
 //    ② 손익은 **청산일**에 반영
 //    ③ 수수료·거래세·슬리피지 **미반영** → 실제 수익률은 이보다 낮다
-export type ClosedTrade = { symbol: string; name: string | null; exit_date: string | null; pnl_pct: number | null; country: string }
+export type ClosedTrade = { symbol: string; name: string | null; exit_date: string | null; pnl_pct: number | null; country: string; weight_pct?: number | null }
 
 const MAX_SLOTS = 12          // paper_trade.mjs 의 MAX_OPEN 과 동일
 const CAP_KEY = 'navcp_start_capital'
@@ -35,12 +35,14 @@ export default function TradeCalendar({ trades, lang = 'ko' }: { trades: ClosedT
     for (const t of trades) {
       if (!t.exit_date || t.pnl_pct == null) continue
       const g = m.get(t.exit_date) || { pnl: 0, n: 0 }
-      g.pnl += (Number(t.pnl_pct) / 100) * slot
+      // 실제 리스크 비중이 있으면 그 비중으로, 없으면 균등(자본÷12)으로 환산
+      const invested = t.weight_pct != null ? capital * (Number(t.weight_pct) / 100) : slot
+      g.pnl += (Number(t.pnl_pct) / 100) * invested
       g.n += 1
       m.set(t.exit_date, g)
     }
     return m
-  }, [trades, slot])
+  }, [trades, slot, capital])
 
   if (!ym) return null
 
@@ -152,8 +154,8 @@ export default function TradeCalendar({ trades, lang = 'ko' }: { trades: ClosedT
 
       <p style={{ fontSize: 10.5, color: T.muted, marginTop: 12, lineHeight: 1.7 }}>
         {en
-          ? `※ Simulation: each position assumed at capital ÷ ${MAX_SLOTS} (${Math.round(slot).toLocaleString('ko-KR')} KRW), P/L booked on the exit date. Commissions, taxes and slippage are NOT included — real returns would be lower.`
-          : `※ 시뮬레이션 가정: 1종목당 시작금액 ÷ ${MAX_SLOTS} = ${Math.round(slot).toLocaleString('ko-KR')}원을 담았다고 계산하고, 손익은 청산일에 반영합니다. 수수료·거래세·슬리피지는 반영하지 않았으므로 실제 수익률은 이보다 낮습니다.`}
+          ? `※ Simulation: each position sized by risk (smaller when more volatile), P/L booked on the exit date. Commissions, taxes and slippage are NOT included — real returns would be lower.`
+          : `※ 시뮬레이션: 각 종목을 리스크 기반 비중(변동성 클수록 작게)으로 담았다고 계산하고, 손익은 청산일에 반영합니다. 수수료·거래세·슬리피지는 반영하지 않아 실제 수익률은 이보다 낮습니다.`}
       </p>
     </div>
   )

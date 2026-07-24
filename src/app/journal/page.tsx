@@ -6,6 +6,7 @@ import LangToggle from '@/components/LangToggle'
 import JournalNote from '@/components/JournalNote'
 import TradeCalendar from '@/components/TradeCalendar'
 import RecentActivity from '@/components/RecentActivity'
+import TradeStats from '@/components/TradeStats'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: '매매일지 — 투자나침반 주식' }
@@ -20,6 +21,8 @@ type Trade = {
   stop_price: number | null; target_price: number | null
   exit_date: string | null; exit_price: number | null; exit_kind: string | null
   exit_reason: string | null; pnl_pct: number | null; holding_days: number | null
+  session: string | null; weight_pct: number | null; risk_pct: number | null
+  r_multiple: number | null; mae_pct: number | null; mfe_pct: number | null
 }
 
 export default async function Journal() {
@@ -56,6 +59,8 @@ export default async function Journal() {
               {en ? 'Entry' : '진입'} {t.entry_score}{en ? 'pts' : '점'}
             </span>
           )}
+          {t.session && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 5, background: 'rgba(25,194,176,0.15)', color: T.teal }}>{t.session === 'close' ? (en ? 'CLOSE' : '종가') : (en ? 'PRE' : '장전')}</span>}
+          {t.weight_pct != null && <span style={{ fontSize: 11, color: T.muted }}>{en ? 'weight' : '비중'} <b style={{ color: T.text }}>{t.weight_pct}%</b></span>}
           <span style={{ marginLeft: 'auto', fontSize: 11.5, color: T.muted }}>
             {t.entry_date}{t.exit_date ? ` → ${t.exit_date}` : ` · ${en ? 'holding' : '보유 중'}`}
           </span>
@@ -69,6 +74,10 @@ export default async function Journal() {
           {t.exit_price != null && <span>{en ? 'Exit' : '청산가'} <b style={{ color: T.text }}>{money(t.exit_price, isUS)}</b></span>}
           {t.exit_kind && <span style={{ color: T.amber }}>{KIND[t.exit_kind] ?? t.exit_kind}</span>}
           {t.holding_days != null && <span>{t.holding_days}{en ? 'd held' : '거래일 보유'}</span>}
+          {t.risk_pct != null && <span>{en ? 'risk' : '위험'} {t.risk_pct}%</span>}
+          {t.r_multiple != null && <span style={{ color: Number(t.r_multiple) > 0 ? T.green : T.red, fontWeight: 700 }}>{Number(t.r_multiple) > 0 ? '+' : ''}{t.r_multiple}R</span>}
+          {t.mae_pct != null && <span>MAE {t.mae_pct}%</span>}
+          {t.mfe_pct != null && <span>MFE +{t.mfe_pct}%</span>}
         </div>
 
         {t.entry_reason && (
@@ -118,7 +127,15 @@ export default async function Journal() {
 
         {/* 손익 달력 — 상단 배치(가장 먼저 보이는 자리) */}
         <div style={{ marginTop: 14 }}>
-          <TradeCalendar trades={closed.map(t => ({ symbol: t.symbol, name: t.name, exit_date: t.exit_date, pnl_pct: t.pnl_pct, country: t.country }))} lang={lang} />
+          <TradeCalendar trades={closed.map(t => ({ symbol: t.symbol, name: t.name, exit_date: t.exit_date, pnl_pct: t.pnl_pct, country: t.country, weight_pct: t.weight_pct }))} lang={lang} />
+        </div>
+
+        {/* 성과 분석 (해외 매매일지 표준 지표) */}
+        <div style={{ marginTop: 14 }}>
+          <TradeStats closed={closed.map(t => ({
+            pnl_pct: t.pnl_pct, r_multiple: t.r_multiple, mae_pct: t.mae_pct, mfe_pct: t.mfe_pct,
+            exit_kind: t.exit_kind, session: t.session, country: t.country, holding_days: t.holding_days,
+          }))} lang={lang} />
         </div>
 
         {/* 집계 — 표본 부족이면 수치를 앞세우지 않는다 */}
