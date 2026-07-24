@@ -474,7 +474,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const { scores, coverage } = scoreStock(o, supplyInfo, techInfo, finInfo, macroScore, derivInfo, aiInfo)
       Object.assign(scores, ex)   // 보조지표(점수 미합산·참고용)
       scores.mcap = s.cap ?? null   // 시가총액(억원) — 메이저/비메이저 구분·포트 시각화
-      await upsert({ symbol: s.code, name: s.name, market: s.market, scores, coverage, cached_at: now })
+      await upsert({ symbol: s.code, name: s.name, market: s.market, country: 'KR', scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.code, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price: scores.price, snapshot_at: now })
       const sd = supplyInfo ? `수급 ${scores.supply}(${supplyInfo.netDir})` : '수급 n/a'
       console.log(`  ${s.name.padEnd(14)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage*100)}% · ${sd} · PER ${scores.per} · PBR ${scores.pbr}`)
@@ -482,9 +482,10 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     } catch (e) { console.log('  err', s.name, String(e.message).slice(0, 80)) }
     await sleep(350)   // KIS 초당 제한 여유(2콜/종목)
   }
-  // 이번 런에 갱신 안 된 stale 행 삭제(옛 유니버스 잔재 정리)
+  // 이번 런에 갱신 안 된 stale 행 삭제 — ⚠️ 반드시 country=KR 로 스코프!
+  //   (스코프 없으면 미국 행(더 오래된 cached_at)까지 지워져 US 유니버스가 통째로 사라짐 — 실제 사고 발생)
   try {
-    await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?cached_at=lt.${encodeURIComponent(now)}`, {
+    await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.KR&cached_at=lt.${encodeURIComponent(now)}`, {
       method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
     })
   } catch (e) {}
