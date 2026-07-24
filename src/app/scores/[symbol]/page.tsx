@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 // 종목 상세 (토스 스타일: 한 화면 · 큰 숫자 · 체계적). 7팩터 + 지지/저항 + 트레이딩뷰.
 // §1 교육·분석 도구. 종목 추천 아님.
 
-const FACTORS: { key: string; label: string; cap: number; hint: string }[] = [
+const FACTORS_BASE: { key: string; label: string; cap: number; hint: string }[] = [
   { key: 'macro', label: '거시', cap: 12, hint: '금리·달러 등 시장 환경' },
   { key: 'supply', label: '수급', cap: 13, hint: '외국인·기관 순매수' },
   { key: 'financial', label: '재무·밸류', cap: 20, hint: 'PER·PBR 등 가치' },
@@ -45,6 +45,11 @@ export default async function StockDetail({ params }: { params: { symbol: string
   // 퍼센타일 — 유니버스 대비 상위 몇 %인지 (Stockopedia 방식)
   type Peer = { symbol: string; name: string | null; scores: Record<string, any>; country?: string }
   const isUS = (r as any).country === 'US'
+  // 미국 수급은 국내(외국인·기관 순매수)와 **다른 지표**(거래량 기반 CMF) → 라벨을 분리 표기
+  const FACTORS = isUS
+    ? FACTORS_BASE.map(f => f.key === 'supply'
+        ? { ...f, label: '수급(자금흐름)', hint: 'CMF · 국내와 다른 지표' } : f)
+    : FACTORS_BASE
   const won = (v: number | null | undefined) => money(v, isUS)
   const peerRows = ((peers || []) as Peer[]).filter(p => ((p as any).country || 'KR') === ((r as any).country || 'KR'))
   const allTotals = peerRows.map(p => Number(p?.scores?.total)).filter(Number.isFinite)

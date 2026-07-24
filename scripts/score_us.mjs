@@ -1,8 +1,8 @@
 // 미국 종목 7팩터 스코어링 — 토스(시세·캔들·종목정보) + SEC EDGAR(재무) + 자체 거시.
 // ⚠️ 정직성 원칙(크립토 ZAMA 교훈): 측정 못 한 팩터는 추정하지 않고 naFactors로 표기하고,
 //    total은 **측정된 배점만으로 정규화**한다. coverage를 반드시 함께 저장.
-// v2 측정: 거시12 · 재무20 · 공시15 · 공매도15 · 기술20 · 전략5 = 87%.
-//          미측정: 수급13 — 미국은 '외국인/기관 순매수' 구분 개념 자체가 없어 대체 불가 → 정직하게 비움.
+// v3 측정: 거시12 · 수급13(CMF) · 재무20 · 공시15 · 공매도15 · 기술20 · 전략5 = 최대 100%.
+//   단, 수급은 국내의 '외국인·기관 순매수'와 **다른 지표**(거래량 기반 자금흐름)임을 UI에 반드시 표기.
 // ⚠️ 토스 주문(/orders) 계열은 규제상(투자일임·자동매매 배제) 절대 사용하지 않는다.
 
 const TOSS_ID = process.env.TOSS_CLIENT_ID, TOSS_SECRET = process.env.TOSS_CLIENT_SECRET
@@ -31,16 +31,21 @@ async function tossToken() {
   _tok = j.access_token; _exp = Date.now() + Math.max(60, (j.expires_in || 3600) - 120) * 1000
   return _tok
 }
-async function tossGet(path, retries = 2) {
+// ⚠️ 과거 사고: 429 외 오류에서 즉시 null을 반환해 **조용히 실패**(에러 로그도 없이 팩터가 통째로 비었음).
+//    → 모든 실패를 재시도하고, 끝내 실패하면 반드시 로그를 남긴다.
+async function tossGet(path, retries = 4) {
+  let lastStatus = ''
   for (let i = 0; i <= retries; i++) {
     try {
       const t = await tossToken()
       const r = await fetch(TOSS_BASE + path, { headers: { Authorization: `Bearer ${t}` } })
       if (r.ok) return await r.json()
-      if (r.status === 429) { await sleep(1000 * (i + 1)); continue }
-      return null
-    } catch { await sleep(500 * (i + 1)) }
+      lastStatus = String(r.status)
+      if (r.status === 401) { _tok = null; _exp = 0 }          // 토큰 만료 → 재발급
+      await sleep(800 * (i + 1))
+    } catch (e) { lastStatus = String(e.message).slice(0, 30); await sleep(800 * (i + 1)) }
   }
+  console.log(`  ⚠️ toss 실패(${lastStatus}) ${path.split('?')[0]}`)
   return null
 }
 
@@ -56,10 +61,11 @@ async function cikOf(ticker) {
   return _cikMap.get(ticker.toUpperCase()) || null
 }
 // 같은 태그의 최신 연간(10-K) 값. end 날짜 기준 최신 우선, 중복(fy 재기재) 제거.
+const ANNUAL_FORMS = new Set(['10-K', '20-F', '40-F', '10-K/A', '20-F/A'])   // 국내기업·외국기업(20-F)·캐나다(40-F)
 function latestAnnual(fact, unit) {
   const arr = fact?.units?.[unit]
   if (!Array.isArray(arr)) return null
-  const ann = arr.filter(u => (u.form === '10-K' || u.form === '20-F') && u.end)
+  const ann = arr.filter(u => ANNUAL_FORMS.has(u.form) && u.end)
   if (!ann.length) return null
   const byEnd = new Map()
   for (const u of ann) byEnd.set(u.end, u)          // 같은 end면 나중 것(정정본)이 남음
@@ -70,7 +76,7 @@ function prevAnnual(fact, unit) {
   const arr = fact?.units?.[unit]
   if (!Array.isArray(arr)) return null
   const byEnd = new Map()
-  for (const u of arr.filter(u => (u.form === '10-K' || u.form === '20-F') && u.end)) byEnd.set(u.end, u)
+  for (const u of arr.filter(u => ANNUAL_FORMS.has(u.form) && u.end)) byEnd.set(u.end, u)
   const s = [...byEnd.values()].sort((a, b) => a.end.localeCompare(b.end))
   return s.length >= 2 ? s[s.length - 2] : null
 }
@@ -81,23 +87,40 @@ async function secFinancials(ticker, price, shares) {
   if (!cik) return null
   const r = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { headers: SEC_UA })
   if (!r.ok) return null
-  const g = (await r.json())?.facts?.['us-gaap']
-  if (!g) return null
+  // 외국기업은 us-gaap 대신 ifrs-full 네임스페이스로 제출한다 → 병합해서 조회(커버리지 폴백)
+  const facts = (await r.json())?.facts
+  if (!facts) return null
+  const g = { ...(facts['ifrs-full'] || {}), ...(facts['us-gaap'] || {}) }
+  if (!Object.keys(g).length) return null
 
-  const epsF = pick(g, 'EarningsPerShareDiluted', 'EarningsPerShareBasic')
-  const eqF = pick(g, 'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest')
-  const revF = pick(g, 'Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet')
+  const epsF = pick(g, 'EarningsPerShareDiluted', 'EarningsPerShareBasic',
+    'DilutedEarningsLossPerShare', 'BasicEarningsLossPerShare')                      // ifrs-full
+  const eqF = pick(g, 'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+    'Equity', 'EquityAttributableToOwnersOfParent')                                   // ifrs-full
+  const revF = pick(g, 'Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet',
+    'Revenue', 'RevenueFromContractsWithCustomers')                                   // ifrs-full
   const liaF = pick(g, 'Liabilities')
 
-  const eps = latestAnnual(epsF, 'USD/shares')?.val ?? null
-  const eq = latestAnnual(eqF, 'USD')?.val ?? null
-  const lia = latestAnnual(liaF, 'USD')?.val ?? null
-  const rev = latestAnnual(revF, 'USD')?.val ?? null
-  const rev0 = prevAnnual(revF, 'USD')?.val ?? null
+  // 단위 폴백: 외국기업은 USD 외 통화로 제출하기도 한다. 단위가 섞이면 비교가 깨지므로
+  // **EPS와 BPS가 같은 통화일 때만** 밸류(PER/PBR)를 산출한다.
+  const unitOf = (fact, prefer) => {
+    const us = Object.keys(fact?.units || {})
+    return us.find(u => u === prefer) || us[0] || null
+  }
+  const epsU = unitOf(epsF, 'USD/shares'), eqU = unitOf(eqF, 'USD')
+  const eps = epsU ? latestAnnual(epsF, epsU)?.val ?? null : null
+  const eq = eqU ? latestAnnual(eqF, eqU)?.val ?? null : null
+  const liaU = unitOf(liaF, 'USD'), revU = unitOf(revF, 'USD')
+  const lia = liaU ? latestAnnual(liaF, liaU)?.val ?? null : null
+  const rev = revU ? latestAnnual(revF, revU)?.val ?? null : null
+  const rev0 = revU ? prevAnnual(revF, revU)?.val ?? null : null
+  const sameCcy = epsU && eqU && String(epsU).replace('/shares', '') === String(eqU)
 
   const bps = (eq != null && shares > 0) ? eq / shares : null
-  const per = (eps != null && eps > 0 && price > 0) ? price / eps : null
-  const pbr = (bps != null && bps > 0 && price > 0) ? price / bps : null
+  // 가격은 USD → EPS/BPS가 USD일 때만 PER/PBR이 의미 있다(통화 혼용 방지)
+  const usd = epsU === 'USD/shares'
+  const per = (usd && eps != null && eps > 0 && price > 0) ? price / eps : null
+  const pbr = (usd && bps != null && bps > 0 && price > 0) ? price / bps : null
   // ROE는 EPS/BPS로 산출 → PER·PBR과 내부 정합(국내판 분기EPS 함정 회피)
   const roe = (eps != null && bps != null && bps > 0) ? (eps / bps) * 100 : null
   const debt = (lia != null && eq != null && eq > 0) ? (lia / eq) * 100 : null
@@ -199,6 +222,40 @@ async function secDisclosure(ticker) {
     }
   }
   return { score: Math.max(0, Math.min(15, s)), pos, neg, posNames, negNames }
+}
+
+// ───────── 수급(자금 흐름) — CMF ─────────
+// ⚠️ 국내판 수급은 '외국인·기관 순매수'다. 미국엔 그 구분 자체가 없으므로 **같은 것이 아니다**.
+//    대신 표준 지표인 CMF(Chaikin Money Flow)로 매집/분산 압력을 측정한다:
+//    MFV = ((종가-저가) - (고가-종가)) / (고가-저가) × 거래량,  CMF = ΣMFV / Σ거래량 (20일)
+//    +면 매집 우위, -면 분산 우위. UI에 '거래량 기반 자금흐름'으로 국내와 다르게 표기할 것.
+function computeSupply(rows) {
+  if (!rows || rows.length < 25) return null
+  const w = rows.slice(-20)
+  let mfv = 0, vol = 0
+  for (const r of w) {
+    const range = r.h - r.l
+    if (!(range > 0) || !(r.v > 0)) continue
+    mfv += (((r.c - r.l) - (r.h - r.c)) / range) * r.v
+    vol += r.v
+  }
+  if (!(vol > 0)) return null
+  const cmf = mfv / vol                                    // 보통 -0.3 ~ +0.3
+  const prev = rows.slice(-40, -20)
+  let pm = 0, pv = 0
+  for (const r of prev) {
+    const range = r.h - r.l
+    if (!(range > 0) || !(r.v > 0)) continue
+    pm += (((r.c - r.l) - (r.h - r.c)) / range) * r.v; pv += r.v
+  }
+  const prevCmf = pv > 0 ? pm / pv : null
+  let sc = cmf >= 0.15 ? 9 : cmf >= 0.05 ? 7 : cmf >= -0.05 ? 5 : cmf >= -0.15 ? 3 : 2
+  if (prevCmf != null) sc += cmf > prevCmf ? 4 : cmf < prevCmf * 0.85 ? 0 : 2   // 개선 추세 가점
+  return {
+    score: Math.max(0, Math.min(13, sc)),
+    cmf: +cmf.toFixed(3),
+    dir: cmf > 0.02 ? '매집 우위' : cmf < -0.02 ? '분산 우위' : '중립',
+  }
 }
 
 // ───────── 팩터 계산 (국내판과 동일 배점·구간 → 비교 가능) ─────────
@@ -325,12 +382,12 @@ async function candles(sym) {
 
 // ───────── 스코어링 (측정분만 정규화) ─────────
 const CAPS = { macro: 12, supply: 13, financial: 20, ai: 15, derivative: 15, technical: 20, strategy: 5 }
-function scoreStock({ price, chg, macro, fin, tech, deriv, disc }) {
+function scoreStock({ price, chg, macro, fin, tech, deriv, disc, sup }) {
   const na = []
   let pts = 0, cap = 0
   const add = (k, v) => { if (v == null) { na.push(k); return null } pts += v; cap += CAPS[k]; return v }
   const m = add('macro', macro)
-  add('supply', null)              // 미국: 외국인·기관 구분 개념 부재 → 측정 불가
+  const sp = add('supply', sup?.score ?? null)   // CMF 자금흐름(국내 '외국인·기관 순매수'와 다른 지표)
   const f = add('financial', fin?.score ?? null)
   const a = add('ai', disc?.score ?? null)          // SEC 8-K 공식 item 코드 기반
   const dv = add('derivative', deriv?.score ?? null) // FINRA RegSHO 공매도 비중
@@ -343,7 +400,7 @@ function scoreStock({ price, chg, macro, fin, tech, deriv, disc }) {
   const total = cap > 0 ? Math.round(pts / cap * 100) : 0
   return {
     scores: {
-      total, macro: m, supply: null, financial: f, ai: a, derivative: dv,
+      total, macro: m, supply: sp, financial: f, ai: a, derivative: dv,
       technical: t, strategy: strat != null ? Math.min(5, strat) : null, coverage,
       per: fin?.per ?? null, pbr: fin?.pbr ?? null, roe: fin?.roe ?? null, grs: fin?.grs ?? null,
       short_ratio: deriv?.avg ?? null,
@@ -353,7 +410,7 @@ function scoreStock({ price, chg, macro, fin, tech, deriv, disc }) {
       rsi: tech?.rsi ?? null, ma5: tech?.ma5 ?? null, ma20: tech?.ma20 ?? null, ma60: tech?.ma60 ?? null,
       support: tech?.support ?? null, resistance: tech?.resistance ?? null,
       w52_high: tech?.w52_high ?? null, w52_low: tech?.w52_low ?? null,
-      supply_dir: null, supply_days: null, candles: tech?.candles ?? null,
+      supply_dir: sup?.dir ?? null, supply_days: null, cmf: sup?.cmf ?? null, candles: tech?.candles ?? null,
       naFactors: na,
     },
     coverage,
@@ -389,9 +446,10 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       const prev = rows && rows.length >= 2 ? rows[rows.length - 2].c : null
       const chg = prev ? +(((price - prev) / prev) * 100).toFixed(2) : null
       const fin = computeFinancial(await secFinancials(s.symbol, price, s.shares), price)
+      const sup = computeSupply(rows)
       const deriv = computeDerivative(shortMap.get(s.symbol), cuts)
       const disc = await secDisclosure(s.symbol)
-      const { scores, coverage } = scoreStock({ price, chg, macro, fin, tech, deriv, disc })
+      const { scores, coverage } = scoreStock({ price, chg, macro, fin, tech, deriv, disc, sup })
       await upsert({ symbol: s.symbol, name: s.name, market: s.market, country: 'US', scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.symbol, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price, country: 'US', snapshot_at: now })
       console.log(`  ${String(s.symbol).padEnd(6)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage * 100)}% · PER ${scores.per} · 공매도 ${scores.short_ratio}% · 8-K(${disc?.pos ?? '-'}/${disc?.neg ?? '-'})`)

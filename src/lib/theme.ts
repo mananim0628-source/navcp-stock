@@ -5,6 +5,9 @@ export const T = {
   green: '#28C76F', amber: '#E6A82E', red: '#F0654A',
   teal: '#19C2B0', gold: '#C8992E', blue: '#6496ff',
   text: '#E8ECF6', muted: '#8A93B5', onTeal: '#06121f',
+  // 국가 식별색 — 등급색(green/amber/red)과 겹치지 않는 계열로 골라 의미 충돌을 피한다.
+  kr: '#3B82F6', krSoft: 'rgba(59,130,246,0.14)',    // 국내 = 블루
+  us: '#A855F7', usSoft: 'rgba(168,85,247,0.14)',    // 미국 = 퍼플
 } as const
 
 export const bgGradient = `radial-gradient(ellipse at 20% 20%, ${T.bg2} 0%, ${T.bg0} 60%, ${T.bg0} 100%)`

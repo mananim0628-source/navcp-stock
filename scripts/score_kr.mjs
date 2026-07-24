@@ -44,7 +44,33 @@ async function fetchUniverse(tok) {
     if (out.length >= TARGET) break
     await sleep(300)
   }
-  return out
+  // ⚠️ 이름 정규식만으로는 ETF를 못 거른다(KODEX 200·TIGER 미국나스닥100엔 'ETF' 글자가 없음 → 18종목 오염됐었음).
+  //    토스 /stocks 의 securityType 으로 권위 있게 판별한다(한 번에 200종목까지 조회).
+  const kept = await filterRealStocks(out)
+  return kept.length ? kept : out
+}
+
+async function filterRealStocks(list) {
+  const ok = []
+  for (let i = 0; i < list.length; i += 100) {
+    const batch = list.slice(i, i + 100)
+    const j = await tossGet('/api/v1/stocks?symbols=' + batch.map(x => x.code).join(','))
+    const info = Array.isArray(j?.result) ? j.result : null
+    if (!info) { ok.push(...batch); continue }          // 조회 실패 시 기존 목록 유지(축소 방지)
+    const map = new Map(info.map(x => [x.symbol, x]))
+    for (const b of batch) {
+      const x = map.get(b.code)
+      if (!x) { ok.push(b); continue }                  // 정보 없으면 보수적으로 유지
+      if (x.securityType !== 'STOCK') continue          // ETF/ETN/리츠 등 제외
+      if (x.isCommonShare === false) continue           // 우선주 제외
+      if (x.leverageFactor != null) continue            // 레버리지/인버스 제외
+      if (x.status && x.status !== 'ACTIVE') continue
+      ok.push(b)
+    }
+    await sleep(300)
+  }
+  console.log(`  유니버스 정화: ${list.length} → ${ok.length} (ETF·우선주·레버리지 제외)`)
+  return ok
 }
 
 async function getToken() {
@@ -121,13 +147,21 @@ async function tossToken() {
     return _tossTok
   } catch (e) { console.log('  toss token err', String(e.message).slice(0, 50)); return null }
 }
-async function tossGet(path) {
-  const t = await tossToken(); if (!t) return null
-  try {
-    const r = await fetch(`${TOSS_BASE}${path}`, { headers: { Authorization: `Bearer ${t}` } })
-    if (!r.ok) return null
-    return await r.json()
-  } catch { return null }
+// ⚠️ 조용한 실패 방지: 모든 실패를 재시도하고, 끝내 실패하면 로그를 남긴다.
+async function tossGet(path, retries = 3) {
+  let lastStatus = ''
+  for (let i = 0; i <= retries; i++) {
+    const t = await tossToken(); if (!t) return null
+    try {
+      const r = await fetch(`${TOSS_BASE}${path}`, { headers: { Authorization: `Bearer ${t}` } })
+      if (r.ok) return await r.json()
+      lastStatus = String(r.status)
+      if (r.status === 401) { _tossTok = null; _tossExp = 0 }
+      await sleep(700 * (i + 1))
+    } catch (e) { lastStatus = String(e.message).slice(0, 30); await sleep(700 * (i + 1)) }
+  }
+  console.log(`  ⚠️ toss 실패(${lastStatus}) ${path.split('?')[0]}`)
+  return null
 }
 // 수정주가 일봉 → KIS daily와 동일 형태로 반환(실패 시 null → 호출부가 KIS 폴백)
 async function tossDaily(code) {

@@ -118,19 +118,34 @@ export default async function Home() {
       {d && <div style={{ fontSize: 11, fontWeight: 700, color: d.chg > 0 ? T.green : d.chg < 0 ? T.red : T.muted }}>{d.chg > 0 ? '▲' : d.chg < 0 ? '▼' : ''}{Math.abs(d.chg)}%</div>}
     </div>
   )
-  const Regime = ({ flag, title, r }: { flag: string; title: string; r: ReturnType<typeof regimeOf> }) => (
-    <div style={{ ...cardStyle, borderRadius: 16, padding: '14px 16px', flex: 1, minWidth: 240, borderLeft: `4px solid ${r.col}` }}>
-      <div style={{ fontSize: 11, color: T.muted, letterSpacing: 1 }}>{flag} {title} 국면</div>
-      <div style={{ fontSize: 22, fontWeight: 900, color: r.col, marginTop: 2 }}>{r.label}</div>
-      <div style={{ fontSize: 12, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>{r.note}<br /><span style={{ fontSize: 11 }}>자동 판정 · 매수/매도 신호 아님</span></div>
+  // 국가 배지 — 국기 이모지는 Windows에서 'KR'/'US' 텍스트로 떨어져 구분이 안 된다 → 색 배지로 대체
+  const Badge = ({ us }: { us: boolean }) => (
+    <span style={{
+      fontSize: 10.5, fontWeight: 900, letterSpacing: 0.5, padding: '2px 7px', borderRadius: 6,
+      background: us ? T.us : T.kr, color: '#0b1020',
+    }}>{us ? 'US' : 'KR'}</span>
+  )
+  const Regime = ({ us, title, r }: { us: boolean; title: string; r: ReturnType<typeof regimeOf> }) => (
+    <div style={{
+      ...cardStyle, borderRadius: 16, padding: '14px 16px', flex: 1, minWidth: 240,
+      borderLeft: `4px solid ${us ? T.us : T.kr}`,                       // 좌측 = 국가색(어느 시장인지)
+      background: `linear-gradient(90deg, ${us ? T.usSoft : T.krSoft}, ${T.cardBg} 55%)`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <Badge us={us} />
+        <span style={{ fontSize: 11.5, color: T.muted, letterSpacing: 0.5 }}>{title} 국면</span>
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 900, color: r.col, marginTop: 4 }}>{r.label}</div>
+      <div style={{ fontSize: 12, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>{r.note}<br /><span style={{ fontSize: 11 }}>{t('regimeNote')}</span></div>
     </div>
   )
 
   // 시장별 요약 카드 (메인의 두 축)
-  const MarketPanel = ({ flag, title, rows, top, isUs, cov }: { flag: string; title: string; rows: StockScore[]; top: StockScore[]; isUs: boolean; cov: string }) => (
-    <div style={{ ...cardStyle, borderRadius: 16, padding: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 17, fontWeight: 800 }}>{flag} {title}</span>
+  const MarketPanel = ({ title, rows, top, isUs, cov }: { title: string; rows: StockScore[]; top: StockScore[]; isUs: boolean; cov: string }) => (
+    <div style={{ ...cardStyle, borderRadius: 16, padding: 18, borderTop: `3px solid ${isUs ? T.us : T.kr}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Badge us={isUs} />
+        <span style={{ fontSize: 17, fontWeight: 800 }}>{title}</span>
         <span style={{ fontSize: 11, color: T.muted }}>{rows.length}종목 · 커버리지 {cov}</span>
         <Link href={`/scores?country=${isUs ? 'US' : 'KR'}`} style={{ marginLeft: 'auto', color: T.teal, fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>상세 보기 →</Link>
       </div>
@@ -193,8 +208,8 @@ export default async function Home() {
 
         {/* 두 시장 국면 */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Regime flag="🇰🇷" title="국내" r={krRegime} />
-          <Regime flag="🇺🇸" title="미국" r={usRegime} />
+          <Regime us={false} title={isEn ? 'Korea' : '국내'} r={krRegime} />
+          <Regime us={true} title={isEn ? 'US' : '미국'} r={usRegime} />
         </div>
 
         {/* 지수 종합 */}
@@ -207,8 +222,8 @@ export default async function Home() {
 
         {/* 메인 두 축 — 국내 / 미국 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginTop: 22 }}>
-          <MarketPanel flag="🇰🇷" title={t("krStocks")} rows={kr} top={krTop} isUs={false} cov={avgCov(kr)} />
-          <MarketPanel flag="🇺🇸" title={t("usStocks")} rows={us} top={usTop} isUs={true} cov={avgCov(us)} />
+          <MarketPanel title={t("krStocks")} rows={kr} top={krTop} isUs={false} cov={avgCov(kr)} />
+          <MarketPanel title={t("usStocks")} rows={us} top={usTop} isUs={true} cov={avgCov(us)} />
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
           ※ 국내·미국은 측정 가능한 데이터가 달라 커버리지가 다릅니다. <b style={{ color: T.text }}>두 시장의 점수를 직접 비교하지 마세요.</b>
@@ -221,7 +236,7 @@ export default async function Home() {
               <div style={{ fontSize: 15, fontWeight: 800, color: g.c, marginBottom: 10 }}>{g.t}</div>
               {g.list.length ? g.list.slice(0, 6).map((f, i) => (
                 <Link key={i} href={`/scores/${f.symbol}`} style={{ display: 'flex', gap: 7, padding: '7px 0', borderTop: i ? `1px solid ${T.cardBr}` : 'none', textDecoration: 'none', color: T.text }}>
-                  <span style={{ fontSize: 11 }}>{f.us ? '🇺🇸' : '🇰🇷'}</span>
+                  <Badge us={f.us} />
                   <span style={{ fontWeight: 700, fontSize: 13, minWidth: 60, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                   <span style={{ fontSize: 13, color: T.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.d.nm}</span>
                   <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>{fmtDt(f.d.dt)}</span>
