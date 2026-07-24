@@ -4,6 +4,7 @@ import { supabase, type StockScore } from '@/lib/supabase'
 import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CandleChart from '@/components/CandleChart'
 import CommunityChat from '@/components/CommunityChat'
+import FactorRadar from '@/components/FactorRadar'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,7 +26,7 @@ const won = (v: number | null | undefined) => (v == null ? '—' : Number(v).toL
 export default async function StockDetail({ params }: { params: { symbol: string } }) {
   const [{ data }, { data: peers }, { data: sent }] = await Promise.all([
     supabase.from('stock_score_cache').select('*').eq('symbol', params.symbol).limit(1).single(),
-    supabase.from('stock_score_cache').select('scores'),                       // 퍼센타일 계산용 유니버스
+    supabase.from('stock_score_cache').select('symbol,name,scores'),           // 퍼센타일·동종업계 비교용 유니버스
     supabase.from('stock_chat_sentiment').select('*').eq('symbol', params.symbol).maybeSingle(),
   ])
   if (!data) return notFound()
@@ -40,11 +41,26 @@ export default async function StockDetail({ params }: { params: { symbol: string
   const rsi = num(sc.rsi), ma20 = num(sc.ma20), ma60 = num(sc.ma60)
 
   // 퍼센타일 — 유니버스 대비 상위 몇 %인지 (Stockopedia 방식)
-  const allTotals = ((peers || []) as { scores: Record<string, number> }[])
-    .map(p => Number(p?.scores?.total)).filter(Number.isFinite)
+  type Peer = { symbol: string; name: string | null; scores: Record<string, any> }
+  const peerRows = (peers || []) as Peer[]
+  const allTotals = peerRows.map(p => Number(p?.scores?.total)).filter(Number.isFinite)
   const below = allTotals.filter(t => t < total).length
   const pctile = allTotals.length > 1 ? Math.round((below / allTotals.length) * 100) : null
   const topPct = pctile != null ? Math.max(1, 100 - pctile) : null
+
+  // 동종업계 비교 — 같은 업종 종목의 평균 점수·PER·ROE 대비
+  const sector = sc.sector as string | null
+  const sectorPeers = sector ? peerRows.filter(p => p.scores?.sector === sector && Number.isFinite(Number(p.scores?.total))) : []
+  const avg = (key: string) => {
+    const v = sectorPeers.map(p => Number(p.scores?.[key])).filter(Number.isFinite)
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
+  }
+  const secAvgTotal = sectorPeers.length >= 2 ? avg('total') : null
+  const secAvgPer = sectorPeers.length >= 2 ? avg('per') : null
+  const secAvgRoe = sectorPeers.length >= 2 ? avg('roe') : null
+  const topPeers = [...sectorPeers]
+    .filter(p => p.symbol !== r.symbol)
+    .sort((a, b) => Number(b.scores?.total) - Number(a.scores?.total)).slice(0, 4)
 
   // 커뮤니티 센티먼트(최근 7일 강세/약세 태그)
   const s = sent as { bull: number; bear: number; msgs: number } | null
@@ -98,6 +114,8 @@ export default async function StockDetail({ params }: { params: { symbol: string
         <div style={{ ...cardStyle, borderRadius: 16, padding: 20, marginTop: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>7팩터 점수</div>
           <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>점수가 높다고 매수 신호가 아니에요. 각 관점을 참고용으로 보세요.</div>
+          <FactorRadar color={col} axes={FACTORS.map(f => ({ label: f.label, value: num(sc[f.key]), cap: f.cap }))} />
+          <div style={{ fontSize: 11, color: T.muted, textAlign: 'center', marginBottom: 14 }}>넓게 퍼질수록 여러 관점이 고르게 우호적 · 점선 축(·)은 측정 전</div>
           {FACTORS.map(f => {
             const v = num(sc[f.key])
             const measured = v != null
@@ -125,6 +143,46 @@ export default async function StockDetail({ params }: { params: { symbol: string
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>📈 차트 <span style={{ fontSize: 12, color: T.muted, fontWeight: 400 }}>· 일봉 + 20/60일선 + 지지/저항</span></div>
           <CandleChart candles={(sc.candles as unknown as [string, number, number, number, number][]) || []} support={support} resistance={resistance} />
         </div>
+
+        {/* 동종업계 비교 */}
+        {secAvgTotal != null && (
+          <div style={{ ...cardStyle, borderRadius: 16, padding: 18, marginTop: 14 }}>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>🏭 동종업계 비교 <span style={{ fontSize: 12, color: T.muted, fontWeight: 400 }}>· {sector} ({sectorPeers.length}종목)</span></div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+              {([
+                ['종합점수', total, secAvgTotal, false],
+                ['PER', num(sc.per), secAvgPer, true],
+                ['ROE', num(sc.roe), secAvgRoe, false],
+              ] as const).map(([label, mine, av, lowerBetter]) => {
+                if (mine == null || av == null) return null
+                const better = lowerBetter ? mine < av : mine > av
+                return (
+                  <div key={label} style={{ flex: 1, minWidth: 110, border: `1px solid ${T.cardBr}`, borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontSize: 11.5, color: T.muted }}>{label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3 }}>{Math.round(Number(mine) * 10) / 10}</div>
+                    <div style={{ fontSize: 11, marginTop: 2, color: better ? T.green : T.amber, fontWeight: 700 }}>
+                      업종 평균 {Math.round(av * 10) / 10} · {better ? '우위' : '열위'}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {topPeers.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>같은 업종 상위 종목</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {topPeers.map(p => (
+                    <Link key={p.symbol} href={`/scores/${p.symbol}`}
+                      style={{ padding: '6px 11px', borderRadius: 9, border: `1px solid ${T.cardBr}`, fontSize: 12.5, textDecoration: 'none', color: T.text }}>
+                      {p.name} <b style={{ color: gradeColor(Math.round(Number(p.scores?.total))) }}>{Math.round(Number(p.scores?.total))}</b>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>※ 같은 업종끼리 비교해야 PER·ROE의 의미가 살아납니다(업종마다 정상 범위가 달라요).</div>
+          </div>
+        )}
 
         {/* 커뮤니티 센티먼트 — 데이터(점수) vs 군중(태그) 비교 */}
         <div style={{ ...cardStyle, borderRadius: 16, padding: 18, marginTop: 14 }}>

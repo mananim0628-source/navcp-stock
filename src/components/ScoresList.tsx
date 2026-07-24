@@ -15,15 +15,39 @@ const BANDS: { key: string; label: string; test: (t: number) => boolean }[] = [
   { key: 'w', label: '경계', test: t => t < 48 },
 ]
 
+// 다중 조건 필터(Finviz 방식). 밸류·공매도는 절대값이 아니라 **유니버스 상대 백분위**로 판정 —
+// 시장 전체가 고평가/저평가로 이동해도 필터가 무의미해지지 않게(고정 임계 하드코딩 회피).
+function pctThreshold(vals: number[], p: number): number | null {
+  const v = vals.filter(x => Number.isFinite(x) && x > 0).sort((a, b) => a - b)
+  if (v.length < 4) return null
+  return v[Math.min(v.length - 1, Math.floor(v.length * p))]
+}
+
 export default function ScoresList({ rows }: { rows: StockScore[] }) {
   const [band, setBand] = useState('all')
   const [q, setQ] = useState('')
+  const [on, setOn] = useState<string[]>([])
   const num = (v: unknown) => (v == null ? 0 : Number(v))
   const active = BANDS.find(b => b.key === band)!
   const query = q.trim().toLowerCase()
+  const toggle = (k: string) => setOn(o => (o.includes(k) ? o.filter(x => x !== k) : [...o, k]))
+
+  // 유니버스 분포에서 임계 산출(하위/상위 30%)
+  const perCut = pctThreshold(rows.map(r => Number(r.scores?.per)), 0.3)
+  const shortCut = pctThreshold(rows.map(r => Number(r.scores?.short_ratio)), 0.3)
+  const roeCut = pctThreshold(rows.map(r => Number(r.scores?.roe)), 0.7)
+  const FILTERS: { key: string; label: string; test: (s: any) => boolean }[] = [
+    { key: 'buy', label: '기관·외국인 순매수', test: s => s?.supply_dir === '순매수' },
+    { key: 'per', label: perCut ? `저PER (${Math.round(perCut)} 이하)` : '저PER', test: s => perCut != null && Number(s?.per) > 0 && Number(s?.per) <= perCut },
+    { key: 'roe', label: roeCut ? `고ROE (${Math.round(roeCut)}% 이상)` : '고ROE', test: s => roeCut != null && Number(s?.roe) >= roeCut },
+    { key: 'short', label: shortCut ? `공매도 낮음 (${shortCut.toFixed(1)}% 미만)` : '공매도 낮음', test: s => shortCut != null && Number(s?.short_ratio) < shortCut },
+    { key: 'up', label: '20일선 위', test: s => Number(s?.price) > Number(s?.ma20) },
+    { key: 'cov', label: '커버리지 90%+', test: s => Number(s?.coverage) >= 0.9 },
+  ]
   const filtered = rows
     .filter(r => active.test(Math.round(num(r.scores?.total))))
     .filter(r => !query || (r.name || '').toLowerCase().includes(query) || (r.symbol || '').includes(query))
+    .filter(r => on.every(k => FILTERS.find(f => f.key === k)!.test({ ...r.scores, coverage: r.coverage })))
   const count = (b: typeof BANDS[number]) => rows.filter(r => b.test(Math.round(num(r.scores?.total)))).length
   // 퍼센타일(유니버스 대비 상위 %) — Stockopedia StockRank 방식
   const totals = rows.map(r => Math.round(num(r.scores?.total))).filter(Number.isFinite)
@@ -50,6 +74,23 @@ export default function ScoresList({ rows }: { rows: StockScore[] }) {
           )
         })}
       </div>
+
+      {/* 다중 조건 필터 */}
+      <div style={{ display: 'flex', gap: 7, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 11.5, color: T.muted }}>조건</span>
+        {FILTERS.map(f => {
+          const sel = on.includes(f.key)
+          return (
+            <button key={f.key} onClick={() => toggle(f.key)}
+              style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+                background: sel ? T.teal : 'transparent', color: sel ? T.onTeal : T.muted, border: `1px solid ${sel ? T.teal : T.cardBr}` }}>
+              {f.label}
+            </button>
+          )
+        })}
+        {on.length > 0 && <button onClick={() => setOn([])} style={{ background: 'none', border: 'none', color: T.red, fontSize: 11.5, cursor: 'pointer', fontWeight: 700 }}>초기화</button>}
+      </div>
+      <div style={{ fontSize: 12, color: T.muted, marginTop: 10 }}>{filtered.length}종목</div>
 
       {filtered.length === 0 ? (
         <div style={{ ...cardStyle, borderRadius: 14, padding: 24, marginTop: 16, textAlign: 'center', color: T.muted }}>이 등급의 종목이 없어요.</div>
