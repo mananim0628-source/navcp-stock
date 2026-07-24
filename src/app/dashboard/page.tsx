@@ -49,10 +49,13 @@ export default async function Home() {
   for (const p of paper) {
     if (p.rule !== 'context1') continue
     const w = Number(p.weight_pct) || 0
-    if (p.status === 'open') {
-      investedPct += w
-      const cur = priceMap.get(p.symbol)
-      if (cur && p.entry_price) unrealPct += ((cur - Number(p.entry_price)) / Number(p.entry_price)) * w
+    if (p.status === 'open' || p.status === 'pending') {
+      investedPct += w   // 대기(pending)도 자본은 배정된 상태 → 투입에 포함
+      // 평가손익은 실제 체결(open)된 것만. pending은 아직 안 샀으므로 0.
+      if (p.status === 'open') {
+        const cur = priceMap.get(p.symbol)
+        if (cur && p.entry_price) unrealPct += ((cur - Number(p.entry_price)) / Number(p.entry_price)) * w
+      }
     } else if (p.status === 'closed' && p.pnl_pct != null) {
       realizedPct += (Number(p.pnl_pct) / 100) * w
     }

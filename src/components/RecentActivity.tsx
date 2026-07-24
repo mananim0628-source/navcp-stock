@@ -76,9 +76,9 @@ export default function RecentActivity({ trades, summary, lang = 'ko' }: { trade
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 0', borderTop: `1px solid ${T.cardBr}`, color: T.text }}>
                 <span style={{
                   fontSize: 9.5, fontWeight: 900, padding: '2px 5px', borderRadius: 4, flexShrink: 0,
-                  background: isIn ? 'rgba(25,194,176,0.18)' : 'rgba(255,255,255,0.07)',
-                  color: isIn ? T.teal : T.muted,
-                }}>{isIn ? (en ? 'IN' : '진입') : (en ? 'OUT' : '청산')}</span>
+                  background: isIn ? (t.status === 'pending' ? 'rgba(230,168,46,0.18)' : 'rgba(25,194,176,0.18)') : 'rgba(255,255,255,0.07)',
+                  color: isIn ? (t.status === 'pending' ? T.gold : T.teal) : T.muted,
+                }}>{isIn ? (t.status === 'pending' ? (en ? 'WAIT' : '대기') : (en ? 'IN' : '진입')) : (en ? 'OUT' : '청산')}</span>
                 <span style={{ fontSize: 9.5, fontWeight: 900, padding: '2px 5px', borderRadius: 4, background: isUS ? T.us : T.kr, color: '#0b1020', flexShrink: 0 }}>{isUS ? 'US' : 'KR'}</span>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {t.name || t.symbol}

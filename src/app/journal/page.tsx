@@ -29,13 +29,14 @@ type Trade = {
 export default async function Journal() {
   const lang = getLang()
   const en = lang === 'en'
-  const { data } = await supabase.from('stock_paper_trade').select('*').order('entry_date', { ascending: false }).limit(120)
+  const { data } = await supabase.from('stock_paper_trade').select('*').eq('rule', 'context1').order('entry_date', { ascending: false }).limit(120)
   const trades = (data || []) as Trade[]
-  const open = trades.filter(t => t.status === 'open')
+  const held = trades.filter(t => t.status === 'open' || t.status === 'pending')   // 보유 + 대기(체결예정)
+  const open = held   // 포트/달력/평가손익은 committed 자본 기준(대기 포함)
   const closed = trades.filter(t => t.status === 'closed')
 
   // 보유 포지션 평가손익 — 현재가(score_cache) 대비 진입가
-  const openSyms = open.map(t => t.symbol)
+  const openSyms = held.map(t => t.symbol)
   const { data: priceRows } = openSyms.length
     ? await supabase.from('stock_score_cache').select('symbol,scores').in('symbol', openSyms)
     : { data: [] as any[] }
@@ -82,8 +83,9 @@ export default async function Journal() {
           )}
           {t.session && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 5, background: 'rgba(25,194,176,0.15)', color: T.teal }}>{t.session === 'close' ? (en ? 'CLOSE' : '종가') : (en ? 'PRE' : '장전')}</span>}
           {t.weight_pct != null && <span style={{ fontSize: 11, color: T.muted }}>{en ? 'weight' : '비중'} <b style={{ color: T.text }}>{t.weight_pct}%</b></span>}
+          {t.status === 'pending' && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 5, background: 'rgba(230,168,46,0.18)', color: T.amber }}>{en ? 'PENDING' : '체결 대기'}</span>}
           <span style={{ marginLeft: 'auto', fontSize: 11.5, color: T.muted }}>
-            {t.entry_date}{t.exit_date ? ` → ${t.exit_date}` : ` · ${en ? 'holding' : '보유 중'}`}
+            {t.entry_date}{t.exit_date ? ` → ${t.exit_date}` : t.status === 'pending' ? ` · ${en ? 'awaiting next open' : '다음 시가 체결 예정'}` : ` · ${en ? 'holding' : '보유 중'}`}
           </span>
           {pnl != null && <span style={{ fontSize: 15, fontWeight: 900, color: col }}>{pnl > 0 ? '+' : ''}{pnl}%</span>}
         </div>
@@ -183,7 +185,7 @@ export default async function Journal() {
 
         {open.length > 0 && (
           <>
-            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{en ? 'Open' : '보유 중'}</h2>
+            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{en ? 'Open & pending' : '보유 · 대기'}</h2>
             <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
           </>
         )}
