@@ -38,6 +38,7 @@ const KO: Sec[] = [
     '본 서비스의 회원 계정은 동일 운영자가 제공하는 「투자나침반」 서비스군(크립토 분석 서비스 navcp.xyz 포함)과 하나의 인증 시스템을 공유합니다.',
     '따라서 어느 한 서비스에서 가입하면 동일한 이메일로 다른 서비스에도 로그인할 수 있습니다.',
     '각 서비스의 이용 기록(관심종목·알림 설정 등)은 서비스별로 분리 저장되며, 이용자 본인만 접근할 수 있도록 행 수준 보안(RLS)이 적용됩니다.',
+    '본 주식 서비스는 계정 종류나 다른 서비스의 결제 여부와 무관하게 모든 이용자에게 전면 무료로 제공됩니다. 유료 회원 전용 정보나 등급별 차등 제공은 존재하지 않습니다.',
     '회원 탈퇴 시 통합 계정이 삭제되어 모든 서비스의 이용이 종료됩니다.',
   ]},
   { h: '6. 개인정보의 제3자 제공', body: [
@@ -105,6 +106,7 @@ const EN: Sec[] = [
     'Your account is shared across the Investment Compass family of services operated by the same operator, including the crypto analysis service at navcp.xyz, via a single authentication system.',
     'Signing up on one service therefore lets you sign in to the others with the same email address.',
     'Activity records for each service (watchlists, alert settings, and so on) are stored separately and protected by row-level security so that only you can access them.',
+    'This stock service is provided entirely free to every user, regardless of account type or of any payment made on another service. There are no paid-member-only contents or tiered access here.',
     'Deleting your account removes the unified account and ends access to all of these services.',
   ]},
   { h: '6. Disclosure to Third Parties', body: [
