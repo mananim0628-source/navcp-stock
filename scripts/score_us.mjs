@@ -13,6 +13,9 @@ const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lpdhtagnbqwjag
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SEC_UA = { 'User-Agent': 'navcp-stock research contact@navcp.xyz', 'Accept-Encoding': 'gzip, deflate' }
 const TARGET = Number(process.env.US_TARGET || 100)
+// 품질 하한: 동전주·초소형주는 하루 수백% 움직여 TOP과 업종 평균을 통째로 왜곡한다.
+const MIN_PRICE = Number(process.env.US_MIN_PRICE || 5)          // $5 미만 제외
+const MIN_CAP = Number(process.env.US_MIN_CAP || 1_000_000_000)  // 시총 $1B 미만 제외
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const mean = a => a.reduce((x, y) => x + y, 0) / a.length
@@ -333,7 +336,10 @@ async function computeMacro() {
 // ───────── 유니버스: 거래대금 상위 → 필터 → 시총 상위 ─────────
 async function fetchUniverse() {
   // 랭킹은 타입당 상위 100위가 상한 → 여러 타입을 합쳐 심볼 풀을 넓힌다(중복 제거).
-  const TYPES = ['MARKET_TRADING_AMOUNT', 'MARKET_TRADING_VOLUME', 'TOSS_SECURITIES_TRADING_AMOUNT']
+  // ⚠️ MARKET_TRADING_VOLUME(거래량=주식수)은 저가 동전주를 상위로 끌어올린다
+  //    (실측: OHMYHOME $1.43 +237%, LIVEWIRE $1.53 +98.7% 유입 → TOP·업종평균 왜곡).
+  //    거래'대금' 기준만 사용한다.
+  const TYPES = ['MARKET_TRADING_AMOUNT', 'TOSS_SECURITIES_TRADING_AMOUNT']
   const ranks = []
   const seen = new Set()
   for (const ty of TYPES) {
@@ -362,6 +368,8 @@ async function fetchUniverse() {
       const pr = ranks.find(r => r.symbol === x.symbol)
       const price = Number(pr?.price?.lastPrice ?? NaN)   // 스펙 실측: RankingPrice.lastPrice
       if (!(shares > 0) || !(price > 0)) continue
+      if (price < MIN_PRICE) continue                     // 동전주 배제
+      if (shares * price < MIN_CAP) continue              // 초소형주 배제
       out.push({ symbol: x.symbol, name: x.englishName || x.name, market: x.market, shares, price, cap: shares * price })
     }
     await sleep(300)

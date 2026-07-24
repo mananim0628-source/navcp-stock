@@ -65,7 +65,37 @@ export function trFiling(nm: string | undefined, lang: 'ko' | 'en'): string {
   return FILING[nm.trim()] ?? nm                     // 매핑 없으면 원문 유지
 }
 
+// 미국 업종은 SEC의 SIC 설명(영문)으로 들어온다 → 한국어 모드에서 한글로 표기.
+// 종류가 많아 개별 매핑 대신 **키워드 규칙**으로 큰 분류에 대응시키고, 못 맞추면 원문을 유지한다.
+const SIC_KO: [RegExp, string][] = [
+  [/semiconductor/i, '반도체'],
+  [/prepackaged software|computer programming|data processing|services-computer/i, '소프트웨어·IT서비스'],
+  [/electronic computers|computer (storage|peripheral|communications)/i, '컴퓨터·하드웨어'],
+  [/pharmaceutical|biological products|medicinal|in vitro|diagnostic/i, '제약·바이오'],
+  [/real estate investment trusts|real estate/i, '부동산·리츠'],
+  [/national commercial banks|state commercial banks|savings institution|banks?$/i, '은행'],
+  [/security brokers|investment advice|finance services|blank checks|finance lessors/i, '금융서비스'],
+  [/fire, marine|life insurance|insurance/i, '보험'],
+  [/telephone communications|radiotelephone|communications services|cable/i, '통신'],
+  [/motor vehicles?|auto|truck/i, '자동차'],
+  [/retail|variety stores|catalog/i, '유통·소매'],
+  [/crude petroleum|petroleum refining|natural gas|oil/i, '에너지'],
+  [/gold mining|metal mining|steel works|rolling|nonferrous/i, '금속·광업'],
+  [/aircraft|guided missiles|ordnance|search, detection/i, '항공우주·방산'],
+  [/electric services|gas transmission|water supply|cogeneration/i, '유틸리티'],
+  [/services-medical|hospital|health services|nursing/i, '헬스케어 서비스'],
+  [/beverages|food|sugar|bakery|dairy/i, '음식료'],
+  [/apparel|footwear|textile/i, '의류·섬유'],
+  [/services-motion picture|broadcasting|advertising|amusement|recreation/i, '미디어·엔터'],
+  [/chemicals?|plastics|industrial organic/i, '화학'],
+  [/air transportation|trucking|railroads|water transportation|transportation/i, '운송'],
+  [/electrical machinery|industrial instruments|measuring|laboratory apparatus/i, '전기·계측장비'],
+  [/construction|heavy construction|general building/i, '건설'],
+  [/tobacco/i, '담배'],
+]
 export function trSector(nm: string | undefined, lang: 'ko' | 'en'): string {
   if (!nm) return ''
-  return lang === 'ko' ? nm : (SECTOR[nm.trim()] ?? nm)
+  if (lang === 'en') return SECTOR[nm.trim()] ?? nm          // 국내 업종(한글) → 영문
+  for (const [re, ko] of SIC_KO) if (re.test(nm)) return ko  // 미국 SIC(영문) → 한글
+  return nm                                                   // 못 맞추면 원문 유지(임의 의역 금지)
 }
