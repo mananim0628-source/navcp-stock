@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import { T, bgGradient, cardStyle } from '@/lib/theme'
+import { getLang } from '@/lib/i18n'
+import LangToggle from '@/components/LangToggle'
 
 export const metadata = { title: '방법론 — 투자나침반 주식' }
 
@@ -23,6 +25,7 @@ const GRADES = [
 ]
 
 export default function Method() {
+  const lang = getLang()
   return (
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
@@ -30,7 +33,8 @@ export default function Method() {
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text, textDecoration: 'none' }}>🧭 투자나침반 <span style={{ color: T.teal }}>주식</span></Link>
           <nav style={{ display: 'flex', gap: 18, fontSize: 14 }}>
             <Link href="/scores" style={{ color: T.muted }}>종목 점수</Link>
-            <Link href="/method" style={{ color: T.teal, fontWeight: 700 }}>방법론</Link>
+            <Link href="/method" style={{ color: T.teal, fontWeight: 700 }}>{lang === 'en' ? 'Method' : '방법론'}</Link>
+            <LangToggle lang={lang} />
           </nav>
         </div>
       </header>

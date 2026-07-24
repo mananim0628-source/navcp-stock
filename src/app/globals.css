@@ -25,3 +25,6 @@ button { font-family: inherit; }
 body { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 /* 대비 확보: 저대비 텍스트 금지 원칙에 따라 muted 최소 대비 유지 */
 a { text-decoration: none; }
+
+/* 긴 목록 스크롤 성능 — 화면 밖 항목은 렌더 생략(브라우저가 알아서 스킵) */
+.card-list > * { content-visibility: auto; contain-intrinsic-size: 74px; }

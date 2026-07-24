@@ -202,11 +202,13 @@ const POS_ITEMS = { '1.01': 2 }   // 중요 계약 체결 (국내 '단일판매�
 async function secDisclosure(ticker) {
   const cik = await cikOf(ticker)
   if (!cik) return null
-  let rec
+  let rec, sic = null
   try {
     const r = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers: SEC_UA })
     if (!r.ok) return null
-    rec = (await r.json())?.filings?.recent
+    const j = await r.json()
+    rec = j?.filings?.recent
+    sic = j?.sicDescription || null      // SIC 산업분류 → 업종 흐름 집계용(추가 요청 불필요)
   } catch { return null }
   if (!rec?.form) return null
   const cutoff = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10)   // 최근 120일
@@ -221,7 +223,7 @@ async function secDisclosure(ticker) {
       else if (POS_ITEMS[it] != null) { pos++; if (pos <= 3) s += POS_ITEMS[it]; if (posNames.length < 2) posNames.push({ dt: dt.replace(/-/g, ''), nm: `8-K ${it} 중요계약` }) }
     }
   }
-  return { score: Math.max(0, Math.min(15, s)), pos, neg, posNames, negNames }
+  return { score: Math.max(0, Math.min(15, s)), pos, neg, posNames, negNames, sic }
 }
 
 // ───────── 수급(자금 흐름) — CMF ─────────
@@ -406,7 +408,7 @@ function scoreStock({ price, chg, macro, fin, tech, deriv, disc, sup }) {
       short_ratio: deriv?.avg ?? null,
       ai_disc: disc ? `8-K 호재 ${disc.pos}·악재 ${disc.neg} (최근 120일)` : null,
       ai_pos: disc?.posNames ?? null, ai_neg: disc?.negNames ?? null,
-      price, chg, sector: null,
+      price, chg, sector: disc?.sic ?? null,
       rsi: tech?.rsi ?? null, ma5: tech?.ma5 ?? null, ma20: tech?.ma20 ?? null, ma60: tech?.ma60 ?? null,
       support: tech?.support ?? null, resistance: tech?.resistance ?? null,
       w52_high: tech?.w52_high ?? null, w52_low: tech?.w52_low ?? null,

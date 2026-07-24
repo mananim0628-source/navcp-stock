@@ -4,6 +4,7 @@ import { T, bgGradient, cardStyle, gradeColor, gradeLabel } from '@/lib/theme'
 import CommunityChat from '@/components/CommunityChat'
 import MarketClock from '@/components/MarketClock'
 import FilingFeed from '@/components/FilingFeed'
+import { trSector } from '@/lib/terms'
 import { marketHours } from '@/lib/toss'
 import { getLang, tr } from '@/lib/i18n'
 import LangToggle from '@/components/LangToggle'
@@ -81,17 +82,21 @@ export default async function Home() {
   const flow = [...kr].filter(r => (r.scores as any)?.supply_dir === '순매수')
     .sort((a, b) => num(b.scores?.supply) - num(a.scores?.supply)).slice(0, 5)
 
-  // 업종 흐름 — 국내 전용
-  const secMap = new Map<string, { chg: number[]; tot: number[] }>()
-  for (const r of kr) {
-    const sec = (r.scores as any)?.sector
-    if (!sec || r.scores?.chg == null) continue
-    if (!secMap.has(sec)) secMap.set(sec, { chg: [], tot: [] })
-    const g = secMap.get(sec)!; g.chg.push(num(r.scores.chg)); g.tot.push(num(r.scores?.total))
+  // 업종 흐름 — 국내(KIS 업종) / 미국(SEC SIC 산업분류)
+  const sectorsOf = (rows: StockScore[]) => {
+    const m = new Map<string, { chg: number[]; tot: number[] }>()
+    for (const r of rows) {
+      const sec = (r.scores as any)?.sector
+      if (!sec || r.scores?.chg == null) continue
+      if (!m.has(sec)) m.set(sec, { chg: [], tot: [] })
+      const g = m.get(sec)!; g.chg.push(num(r.scores.chg)); g.tot.push(num(r.scores?.total))
+    }
+    return [...m.entries()].filter(([, g]) => g.chg.length >= 2)
+      .map(([name, g]) => ({ name, chg: +mean(g.chg).toFixed(2), tot: Math.round(mean(g.tot)), n: g.chg.length }))
+      .sort((a, b) => b.chg - a.chg).slice(0, 8)
   }
-  const sectors = [...secMap.entries()].filter(([, g]) => g.chg.length >= 2)
-    .map(([name, g]) => ({ name, chg: +mean(g.chg).toFixed(2), tot: Math.round(mean(g.tot)), n: g.chg.length }))
-    .sort((a, b) => b.chg - a.chg).slice(0, 8)
+  const sectors = sectorsOf(kr)
+  const usSectors = sectorsOf(us)
 
   // 성과 기록 진행 — 표본이 충분해질 때까지 **수치를 만들어 보여주지 않는다**(§6 RAG)
   const days = [...new Set(((hist || []) as { d: string }[]).map(h => h.d))].sort()
@@ -244,25 +249,30 @@ export default async function Home() {
         </div>
         <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{t('filingSource')}</div>
 
-        {/* 업종 흐름 (국내) */}
-        {sectors.length > 0 && (
-          <>
-            <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 26, marginBottom: 8 }}>{t('sectorFlow')}</div>
+        {/* 업종 흐름 — 국내 / 미국 */}
+        {[{ list: sectors, us: false }, { list: usSectors, us: true }].map(g => g.list.length === 0 ? null : (
+          <div key={g.us ? 'us' : 'kr'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 26, marginBottom: 8 }}>
+              <Badge us={g.us} />
+              <span style={{ fontSize: 12, color: T.muted, letterSpacing: 0.5 }}>
+                {g.us ? (isEn ? 'US Sector Flow' : '미국 업종 흐름') : (isEn ? 'Korea Sector Flow' : '국내 업종 흐름')}
+              </span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8 }}>
-              {sectors.map(s => {
-                const on = Math.min(1, Math.abs(s.chg) / 3)
-                const bg = s.chg >= 0 ? `rgba(40,199,111,${0.12 + on * 0.4})` : `rgba(240,101,74,${0.12 + on * 0.4})`
+              {g.list.map(sc => {
+                const on = Math.min(1, Math.abs(sc.chg) / 3)
+                const bg = sc.chg >= 0 ? `rgba(40,199,111,${0.12 + on * 0.4})` : `rgba(240,101,74,${0.12 + on * 0.4})`
                 return (
-                  <div key={s.name} style={{ borderRadius: 10, padding: '10px 12px', background: bg, border: `1px solid ${T.cardBr}`, gridColumn: `span ${Math.min(3, Math.max(1, Math.round(s.n / 3)))}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: s.chg >= 0 ? T.green : T.red, marginTop: 2 }}>{s.chg > 0 ? '+' : ''}{s.chg}%</div>
-                    <div style={{ fontSize: 10, color: T.muted }}>{s.n} {t('stocksUnit')} · {t('sectorAvg')} {s.tot}{t('points')}</div>
+                  <div key={sc.name} style={{ borderRadius: 10, padding: '10px 12px', background: bg, border: `1px solid ${T.cardBr}`, gridColumn: `span ${Math.min(3, Math.max(1, Math.round(sc.n / 3)))}` }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={sc.name}>{trSector(sc.name, lang)}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: sc.chg >= 0 ? T.green : T.red, marginTop: 2 }}>{sc.chg > 0 ? '+' : ''}{sc.chg}%</div>
+                    <div style={{ fontSize: 10, color: T.muted }}>{sc.n} {t('stocksUnit')} · {t('sectorAvg')} {sc.tot}{t('points')}</div>
                   </div>
                 )
               })}
             </div>
-          </>
-        )}
+          </div>
+        ))}
 
         {/* 기관·외국인 순매수 (국내 전용) */}
         {flow.length > 0 && (

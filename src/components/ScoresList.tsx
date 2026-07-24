@@ -96,7 +96,7 @@ export default function ScoresList({ rows, lang = 'ko', isUS = false }: { rows: 
       {filtered.length === 0 ? (
         <div style={{ ...cardStyle, borderRadius: 14, padding: 24, marginTop: 16, textAlign: 'center', color: T.muted }}>{en ? 'No stocks in this grade.' : '이 등급의 종목이 없어요.'}</div>
       ) : (
-        <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
+        <div className="card-list" style={{ marginTop: 16, display: 'grid', gap: 10 }}>
           {filtered.map(r => {
             const total = Math.round(num(r.scores?.total))
             const cov = r.coverage != null ? Math.round(Number(r.coverage) * 100) : null

@@ -26,7 +26,7 @@ export default async function ScoresPage({ searchParams }: { searchParams?: { co
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
         <div style={{ maxWidth: 960, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Link href="/" style={{ fontWeight: 800, fontSize: 18, textDecoration: 'none' }}>🧭 투자나침반 <span style={{ color: T.teal }}>주식</span></Link>
+          <Link href="/" style={{ fontWeight: 800, fontSize: 18, textDecoration: 'none' }}>🧭 {isEn ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{t('brandSuffix')}</span></Link>
           <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
             <Link href="/scores?country=KR" style={{ color: country === 'KR' ? T.teal : T.muted, fontWeight: country === 'KR' ? 700 : 400 }}>{t('navKR')}</Link>
             <Link href="/scores?country=US" style={{ color: country === 'US' ? T.teal : T.muted, fontWeight: country === 'US' ? 700 : 400 }}>{t('navUS')}</Link>

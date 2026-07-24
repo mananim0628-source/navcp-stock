@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { T, cardStyle } from '@/lib/theme'
+import { trFiling } from '@/lib/terms'
 
 // 공시 피드 — 기본 6건, '펼치기'로 전체 확인. 국내 DART + 미국 SEC 8-K 통합(국가 배지로 구분).
 export type FilingItem = { symbol: string; name: string; nm?: string; dt?: string; us: boolean }
@@ -38,7 +39,7 @@ export default function FilingFeed({
                   background: f.us ? T.us : T.kr, color: '#0b1020', flexShrink: 0,
                 }}>{f.us ? 'US' : 'KR'}</span>
                 <span style={{ fontWeight: 700, fontSize: 13, minWidth: 62, maxWidth: 110, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                <span style={{ fontSize: 13, color: T.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nm}</span>
+                <span style={{ fontSize: 13, color: T.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trFiling(f.nm, lang)}</span>
                 <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>{fmtDt(f.dt)}</span>
               </Link>
             ))}
