@@ -5,6 +5,7 @@ import LangToggle from '@/components/LangToggle'
 import AuthPanel from '@/components/AuthPanel'
 import MyWatchlist from '@/components/MyWatchlist'
 import AlertPrefs from '@/components/AlertPrefs'
+import TradeLog from '@/components/TradeLog'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -38,6 +39,7 @@ export default async function MyPage() {
 
         <AuthPanel lang={lang} />
         <MyWatchlist lang={lang} />
+        <TradeLog lang={lang} />
         <AlertPrefs lang={lang} />
 
         {/* 소통방 / 자료방 — 자리만 잡아두고 채널은 추후 연결 */}
