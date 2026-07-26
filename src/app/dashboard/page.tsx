@@ -232,6 +232,7 @@ export default async function Home() {
             <Link href="/scores?country=US" style={{ color: T.teal, fontWeight: 700 }}>{t('navUS')}</Link>
             <Link href="/method" style={{ color: T.muted }}>{t('navMethod')}</Link>
             <Link href="/journal" style={{ color: T.muted }}>{isEn ? 'Journal' : '매매일지'}</Link>
+            <Link href="/plan" style={{ color: T.muted }}>{isEn ? 'Plan' : '계획서'}</Link>
             <Link href="/my" style={{ color: T.muted }}>{isEn ? 'My' : '내 정보'}</Link>
             <LangToggle lang={lang} />
           </nav>

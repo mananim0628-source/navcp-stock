@@ -129,6 +129,7 @@ export default async function Journal() {
           <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
             <Link href="/dashboard" style={{ color: T.muted }}>{en ? 'Dashboard' : '대시보드'}</Link>
             <Link href="/journal" style={{ color: T.teal, fontWeight: 700 }}>{en ? 'Journal' : '매매일지'}</Link>
+            <Link href="/plan" style={{ color: T.muted }}>{en ? 'Plan' : '계획서'}</Link>
             <Link href="/my" style={{ color: T.muted }}>{en ? 'My' : '내 정보'}</Link>
             <LangToggle lang={lang} />
           </nav>

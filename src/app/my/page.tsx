@@ -27,6 +27,7 @@ export default async function MyPage() {
             <Link href="/scores?country=KR" style={{ color: T.muted }}>{en ? 'Korea' : '국내'}</Link>
             <Link href="/scores?country=US" style={{ color: T.muted }}>{en ? 'US' : '미국'}</Link>
             <Link href="/journal" style={{ color: T.muted }}>{en ? 'Journal' : '매매일지'}</Link>
+            <Link href="/plan" style={{ color: T.muted }}>{en ? 'Plan' : '계획서'}</Link>
             <LangToggle lang={lang} />
           </nav>
         </div>
