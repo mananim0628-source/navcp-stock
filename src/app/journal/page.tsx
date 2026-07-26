@@ -128,8 +128,8 @@ export default async function Journal() {
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text }}>🧭 {en ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{en ? 'Stocks' : '주식'}</span></Link>
           <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
             <Link href="/dashboard" style={{ color: T.muted }}>{en ? 'Dashboard' : '대시보드'}</Link>
-            <Link href="/journal" style={{ color: T.teal, fontWeight: 700 }}>{en ? 'Journal' : '매매일지'}</Link>
-            <Link href="/plan" style={{ color: T.muted }}>{en ? 'Plan' : '계획서'}</Link>
+            <Link href="/journal" style={{ color: T.teal, fontWeight: 700 }}>{en ? 'Validation' : '모의매매 검증'}</Link>
+            <Link href="/plan" style={{ color: T.muted }}>{en ? 'My Trades' : '내 매매'}</Link>
             <Link href="/my" style={{ color: T.muted }}>{en ? 'My' : '내 정보'}</Link>
             <LangToggle lang={lang} />
           </nav>
@@ -138,7 +138,7 @@ export default async function Journal() {
 
       <div className="shell">
        <main className="shell-main">
-        <h1 style={{ fontSize: 23, fontWeight: 900 }}>{en ? 'Simulated Trade Journal' : '모의매매 일지'}</h1>
+        <h1 style={{ fontSize: 23, fontWeight: 900 }}>{en ? 'Rule Validation (auto-simulated)' : '모의매매 검증 (규칙 자동)'}</h1>
 
         {/* 프레임 고지 — 가장 먼저 읽히게 */}
         <div style={{ ...cardStyle, borderRadius: 12, padding: 14, marginTop: 12, borderLeft: `3px solid ${T.amber}` }}>
