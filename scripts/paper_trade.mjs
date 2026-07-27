@@ -130,13 +130,29 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   // ── 0) 대기(pending) 체결 — 장전 판정은 '다음 시가'로만 체결한다(판정 시점엔 시가 미확정 = 정직).
   //   판정일 이후 첫 캔들의 **시가**로 진입가를 확정하고 open 으로 전환. 손절·목표도 그 가격 기준.
   const pending = await rest('stock_paper_trade?select=*&status=eq.pending')
-  let filled = 0
+  let filled = 0, canceled = 0
+  const dayMs = 86400e3
   for (const t of pending) {
     const sc = byS.get(t.symbol)?.scores
     const candles = Array.isArray(sc?.candles) ? sc.candles : null
-    if (!candles) continue
+    // ⚠️ 유니버스 회전으로 종목이 캐시에서 빠지거나, 판정 후 4일 넘게 체결 못 하면 취소한다.
+    //    (그 진입 기회는 이미 지났으므로 억지로 체결하면 정직하지 않음)
+    const staleDays = (Date.parse(today) - Date.parse(t.entry_date)) / dayMs
+    if (!candles) {
+      if (staleDays >= 4) {                        // 캐시에서 사라진 지 오래 → 취소
+        await rest(`stock_paper_trade?id=eq.${t.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'canceled', exit_reason: '유니버스 이탈로 체결 불가 → 취소' }) })
+        canceled++
+      }
+      continue
+    }
     const fillC = candles.find(c => String(c[0]).slice(0, 8) > String(t.entry_date).replace(/-/g, ''))
-    if (!fillC) continue                          // 아직 다음 캔들 없음 → 다음 실행 때 체결
+    if (!fillC) {
+      if (staleDays >= 4) {                        // 4일 지나도 다음 캔들 없음(거래정지 등) → 취소
+        await rest(`stock_paper_trade?id=eq.${t.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'canceled', exit_reason: '체결 기회 경과 → 취소' }) })
+        canceled++
+      }
+      continue                                     // 아직 다음 캔들 없음 → 다음 실행 때 체결
+    }
     const fillOpen = Number(fillC[1])             // [날짜,시,고,저,종] → 시가
     const fillDate = `${fillC[0].slice(0,4)}-${fillC[0].slice(4,6)}-${fillC[0].slice(6,8)}`
     if (!(fillOpen > 0)) continue
@@ -363,5 +379,5 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   }
 
   const finalInvested = usedNow + news.reduce((a, n) => a + (Number(n.weight_pct) || 0), 0)
-  console.log(`[paper] ${today} · 청산 ${closed} · 물타기 ${added} · 신규 ${opened} (보유 ${stillOpenRows.length - closed + opened}/${MAX_OPEN}) · 투입 ${finalInvested.toFixed(0)}%/현금 ${(100 - finalInvested).toFixed(0)}% · 거시 KR:${macroKR ? '우호' : '주의'}/US:${macroUS ? '우호' : '주의'} · 규칙 ${RULE}`)
+  console.log(`[paper] ${today} · 청산 ${closed} · 취소 ${canceled} · 물타기 ${added} · 신규 ${opened} (보유 ${stillOpenRows.length - closed + opened}/${MAX_OPEN}) · 투입 ${finalInvested.toFixed(0)}%/현금 ${(100 - finalInvested).toFixed(0)}% · 거시 KR:${macroKR ? '우호' : '주의'}/US:${macroUS ? '우호' : '주의'} · 규칙 ${RULE}`)
 })()

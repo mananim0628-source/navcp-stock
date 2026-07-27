@@ -473,11 +473,21 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     } catch (e) { console.log('  err', s.symbol, String(e.message).slice(0, 70)) }
     await sleep(400)   // 토스 + SEC 레이트리밋 여유
   }
-  // 이번 런에 갱신 안 된 US stale 행 정리
+  // 이번 런에 갱신 안 된 US stale 행 정리 — ⚠️ 단, 토스 배치 간헐 실패로 유니버스가 급감했을 때는
+  //   삭제하면 캐시가 영구 축소된다(발행주식수 못 받은 코인 통째 누락 → stale로 오인 삭제).
+  //   기존 US 캐시 대비 이번 적재가 **70% 미만**이면 나쁜 fetch로 보고 삭제를 건너뛴다.
   try {
-    await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.US&cached_at=lt.${encodeURIComponent(now)}`, {
-      method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
+    const prevRes = await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.US&select=symbol`, {
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
     })
+    const prevCount = prevRes.ok ? (await prevRes.json()).length : 0
+    if (ok >= prevCount * 0.7 || prevCount === 0) {
+      await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.US&cached_at=lt.${encodeURIComponent(now)}`, {
+        method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
+      })
+    } else {
+      console.log(`[US] ⚠️ 유니버스 급감(${ok} < 기존 ${prevCount}의 70%) → stale 삭제 건너뜀(캐시 보존)`)
+    }
   } catch {}
   if (history.length) {
     const r = await fetch(`${SUPA_URL}/rest/v1/stock_score_history?on_conflict=d,symbol`, {

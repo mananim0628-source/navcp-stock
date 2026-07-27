@@ -29,7 +29,7 @@ type Trade = {
 export default async function Journal() {
   const lang = getLang()
   const en = lang === 'en'
-  const { data } = await supabase.from('stock_paper_trade').select('*').eq('rule', 'context1').order('entry_date', { ascending: false }).limit(120)
+  const { data } = await supabase.from('stock_paper_trade').select('*').eq('rule', 'context1').neq('status','canceled').order('entry_date', { ascending: false }).limit(120)
   const trades = (data || []) as Trade[]
   const held = trades.filter(t => t.status === 'open' || t.status === 'pending')   // 보유 + 대기(체결예정)
   const open = held   // 포트/달력/평가손익은 committed 자본 기준(대기 포함)

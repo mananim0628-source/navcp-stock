@@ -47,7 +47,7 @@ export default async function Home() {
   const priceMap = new Map<string, number>([...kr, ...us].map(r => [r.symbol, Number((r.scores as any)?.price)]))
   let unrealPct = 0, realizedPct = 0, investedPct = 0
   for (const p of paper) {
-    if (p.rule !== 'context1') continue
+    if (p.rule !== 'context1' || p.status === 'canceled') continue
     const w = Number(p.weight_pct) || 0
     if (p.status === 'open' || p.status === 'pending') {
       investedPct += w   // 대기(pending)도 자본은 배정된 상태 → 투입에 포함
@@ -352,7 +352,7 @@ export default async function Home() {
        <aside className="chat-rail" style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'auto', maxHeight: 'calc(100vh - 104px)' }}>
          <div style={{ flex: '1 1 auto', minHeight: 260 }}><CommunityChat lang={lang} /></div>
          <div style={{ flexShrink: 0 }}>
-           <RecentActivity summary={paperSummary} trades={paper.filter(t => t.rule === 'context1').map((t: any) => ({
+           <RecentActivity summary={paperSummary} trades={paper.filter(t => t.rule === 'context1' && t.status !== 'canceled').map((t: any) => ({
              id: t.id, symbol: t.symbol, name: t.name, country: t.country, status: t.status,
              entry_date: t.entry_date, entry_score: t.entry_score,
              exit_date: t.exit_date, exit_kind: t.exit_kind, pnl_pct: t.pnl_pct,
