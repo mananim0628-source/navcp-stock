@@ -228,9 +228,12 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   const idxUp = async sym => {
     try {
       const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=3mo&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-      const c = ((await r.json())?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(Number.isFinite)
+      const res = (await r.json())?.chart?.result?.[0]
+      const c = (res?.indicators?.quote?.[0]?.close || []).filter(Number.isFinite)
       if (c.length < 25) return false
-      return c[c.length - 1] > c.slice(-20).reduce((a, b) => a + b, 0) / 20
+      // 장중엔 오늘 봉 종가가 비어(필터 제외) 어제값이 된다 → 실시간가로 추세 판정(대시보드 idx와 동일 수정).
+      const last = Number(res?.meta?.regularMarketPrice) || c[c.length - 1]
+      return last > c.slice(-20).reduce((a, b) => a + b, 0) / 20
     } catch { return false }
   }
   const macroPre = { kr: await idxUp('^KS11'), us: await idxUp('^GSPC') }
