@@ -18,11 +18,16 @@ const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length
 async function idx(sym: string) {
   try {
     const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=3mo&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' }, next: { revalidate: 600 } })
-    const j = await r.json()
-    const c: number[] = (j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(Number.isFinite)
-    if (c.length < 25) return null
-    const last = c[c.length - 1], ma20 = mean(c.slice(-20)), prev = c[c.length - 2]
-    return { last: +last.toFixed(2), chg: +(((last - prev) / prev) * 100).toFixed(2), trend: last > ma20 ? 'up' as const : 'down' as const }
+    const res = (await r.json())?.chart?.result?.[0]
+    const meta = res?.meta
+    const c: number[] = (res?.indicators?.quote?.[0]?.close || []).filter(Number.isFinite)
+    if (!meta || c.length < 25) return null
+    // ⚠️ 장중엔 '오늘 봉'의 종가가 아직 비어(undefined) 필터에서 빠진다 → 그대로 두면 '어제 종가'가 찍힌다.
+    //    실시간가는 meta.regularMarketPrice, 등락 기준은 전일 종가(chartPreviousClose)로 잡아야 오늘 변동이 맞다.
+    const last = Number(meta.regularMarketPrice) || c[c.length - 1]
+    const prevClose = Number(meta.chartPreviousClose) || Number(meta.previousClose) || c[c.length - 2]
+    const ma20 = mean(c.slice(-20))
+    return { last: +last.toFixed(2), chg: +(((last - prevClose) / prevClose) * 100).toFixed(2), trend: last > ma20 ? 'up' as const : 'down' as const }
   } catch { return null }
 }
 type Disc = { dt?: string; nm?: string }
