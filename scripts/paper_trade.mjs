@@ -118,35 +118,6 @@ function maeMfe(entry, afterCandles) {
 const RANK = { 경계: 0, 주의: 1, 중립: 2, 우호: 3, 강한우호: 4 }
 const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '중립' : t >= 48 ? '주의' : '경계'
 
-// ── 장중(분봉) 캔들 — 보유·대기 종목만. 손절/목표가 **실제로 어느 쪽이 먼저 닿았는지**를
-//    일봉이 아니라 5분봉 순서로 판정한다(뻥튀기 방지 '손절 우선' 가정을 실측으로 대체).
-//    소스: Yahoo 5분봉(range=1mo, 무키). US=심볼 그대로, KR=.KS/.KQ 둘 다 시도(시장구분 미저장).
-//    분봉이 없거나 보유기간이 1개월을 넘어 범위 밖이면 → 일봉 로직으로 정직하게 폴백.
-const intraCache = new Map()
-async function intraday(symbol, country) {
-  const key = country + symbol
-  if (intraCache.has(key)) return intraCache.get(key)
-  const tries = country === 'US' ? [symbol] : [`${symbol}.KS`, `${symbol}.KQ`]
-  let out = null
-  for (const ys of tries) {
-    try {
-      const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ys)}?range=1mo&interval=5m`, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-      if (!r.ok) continue
-      const res = (await r.json())?.chart?.result?.[0]
-      const ts = res?.timestamp, q = res?.indicators?.quote?.[0]
-      const gmtoff = Number(res?.meta?.gmtoffset) || 0
-      if (!ts || !q) continue
-      const bars = ts.map((t, i) => ({ t, h: q.high[i], l: q.low[i] }))
-        .filter(b => Number.isFinite(b.h) && Number.isFinite(b.l))
-      if (bars.length) { out = { bars, gmtoff }; break }
-    } catch { /* 다음 후보/폴백 */ }
-  }
-  intraCache.set(key, out)
-  return out
-}
-// epoch초 → 거래소 로컬 YYYYMMDD (DST는 Yahoo gmtoffset로 정확)
-const ymdLocal = (t, gmtoff) => new Date((t + gmtoff) * 1000).toISOString().slice(0, 10).replace(/-/g, '')
-
 ;(async () => {
   // 오늘자 점수 스냅샷 (엔진이 이미 적재한 것)
   const cache = await rest('stock_score_cache?select=symbol,name,country,scores,coverage,cached_at')
@@ -200,7 +171,7 @@ const ymdLocal = (t, gmtoff) => new Date((t + gmtoff) * 1000).toISOString().slic
 
   // ── 1) 보유 중 포지션 청산 판정 — 진입 이후 실제 캔들로만 본다
   const open = await rest('stock_paper_trade?select=*&status=eq.open')
-  let closed = 0, intraClosed = 0
+  let closed = 0
   for (const t of open) {
     const row = byS.get(t.symbol)
     if (!row) continue
@@ -211,22 +182,10 @@ const ymdLocal = (t, gmtoff) => new Date((t + gmtoff) * 1000).toISOString().slic
     const after = candles.filter(c => String(c[0]).slice(0, 8) > String(t.entry_date).replace(/-/g, ''))
     if (!after.length) continue
 
-    let kind = null, price = null, when = null, intraHit = false
-    // ── (a) 장중 5분봉으로 **실제 순서** 판정 — 손절/목표 중 먼저 닿은 쪽을 그대로 채택.
-    const intra = await intraday(t.symbol, t.country)
-    if (intra?.bars?.length) {
-      const eNum = String(t.entry_date).replace(/-/g, '')
-      for (const b of intra.bars) {
-        const dd = ymdLocal(b.t, intra.gmtoff)
-        if (dd <= eNum) continue                 // 진입일 이후 봉만
-        const D = `${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}`
-        if (t.stop_price != null && b.l <= Number(t.stop_price)) { kind = 'stop'; price = Number(t.stop_price); when = D; intraHit = true; break }
-        if (t.target_price != null && b.h >= Number(t.target_price)) { kind = 'target'; price = Number(t.target_price); when = D; intraHit = true; break }
-      }
-    }
-    // ── (b) 분봉으로 못 잡음(또는 1개월 범위 밖 과거) → 일봉 폴백. 타임아웃도 여기서 판정.
-    // ⚠️ 일봉 폴백에서 같은 봉에 손절·목표가 동시에 닿으면 **손절 우선**(순서를 모르니 보수적).
-    if (!kind) for (let i = 0; i < after.length; i++) {
+    let kind = null, price = null, when = null
+    // ⚠️ 같은 봉에서 손절·목표가 동시에 닿으면 **손절을 우선**한다(의도적·보수적 규칙 —
+    //    일봉으론 어느 쪽이 먼저 닿았는지 알 수 없어, 성과를 유리하게 부풀리지 않는 쪽을 택함).
+    for (let i = 0; i < after.length; i++) {
       const [d, , h, l, c] = after[i]
       const dd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
       if (t.stop_price != null && Number(l) <= Number(t.stop_price)) { kind = 'stop'; price = Number(t.stop_price); when = dd; break }
@@ -244,10 +203,7 @@ const ymdLocal = (t, gmtoff) => new Date((t + gmtoff) * 1000).toISOString().slic
     }
     if (!kind || !(price > 0)) continue
 
-    // 보유일수 = 진입 이후 ~ 청산일(when) 까지의 일봉 개수. 분봉 청산일이 일봉과 정확히
-    // 안 맞아도(캐시 지연 등) 견고하게: when 이하 날짜의 일봉 수를 센다.
-    const wNum = String(when).replace(/-/g, '')
-    const days = after.filter(x => String(x[0]).slice(0, 8) <= wNum).length
+    const days = after.findIndex(x => `${x[0].slice(0,4)}-${x[0].slice(4,6)}-${x[0].slice(6,8)}` === when) + 1
     const usedAfter = after.slice(0, days > 0 ? days : after.length)
     // MAE/MFE는 **원 진입가** 기준(물타기 평단으로 계산하면 물타기 전 구간이 왜곡됨 — H 수정).
     const { mae, mfe } = maeMfe(Number(t.entry_price), usedAfter)
@@ -266,7 +222,6 @@ const ymdLocal = (t, gmtoff) => new Date((t + gmtoff) * 1000).toISOString().slic
       }),
     })
     closed++
-    if (intraHit) intraClosed++
   }
 
   // 거시 국면 — 야후 지수로 KR/US 각각 판정(물타기·신규진입 공용)
@@ -424,5 +379,5 @@ const ymdLocal = (t, gmtoff) => new Date((t + gmtoff) * 1000).toISOString().slic
   }
 
   const finalInvested = usedNow + news.reduce((a, n) => a + (Number(n.weight_pct) || 0), 0)
-  console.log(`[paper] ${today} · 청산 ${closed}(장중 ${intraClosed}) · 취소 ${canceled} · 물타기 ${added} · 신규 ${opened} (보유 ${stillOpenRows.length - closed + opened}/${MAX_OPEN}) · 투입 ${finalInvested.toFixed(0)}%/현금 ${(100 - finalInvested).toFixed(0)}% · 거시 KR:${macroKR ? '우호' : '주의'}/US:${macroUS ? '우호' : '주의'} · 규칙 ${RULE}`)
+  console.log(`[paper] ${today} · 청산 ${closed} · 취소 ${canceled} · 물타기 ${added} · 신규 ${opened} (보유 ${stillOpenRows.length - closed + opened}/${MAX_OPEN}) · 투입 ${finalInvested.toFixed(0)}%/현금 ${(100 - finalInvested).toFixed(0)}% · 거시 KR:${macroKR ? '우호' : '주의'}/US:${macroUS ? '우호' : '주의'} · 규칙 ${RULE}`)
 })()
