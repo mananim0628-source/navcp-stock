@@ -11,7 +11,7 @@ export type Activity = {
 
 export type PortSummary = { seed: number; investedPct: number; unrealPct: number; realizedPct: number }
 
-export default function RecentActivity({ trades, summary, lang = 'ko' }: { trades: Activity[]; summary?: PortSummary; lang?: 'ko' | 'en' }) {
+export default function RecentActivity({ trades, summary, lang = 'ko', max = 14 }: { trades: Activity[]; summary?: PortSummary; lang?: 'ko' | 'en'; max?: number }) {
   const en = lang === 'en'
 
   // 진입/청산을 한 줄씩 이벤트로 펼쳐 최신순 정렬
@@ -22,7 +22,7 @@ export default function RecentActivity({ trades, summary, lang = 'ko' }: { trade
     if (t.exit_date) evs.push({ key: `out${t.id}`, kind: 'out', date: t.exit_date, t })
   }
   evs.sort((a, b) => b.date.localeCompare(a.date) || (a.kind === 'out' ? -1 : 1))
-  const shown = evs.slice(0, 14)
+  const shown = evs.slice(0, max)
 
   const KIND: Record<string, string> = en
     ? { target: 'target', stop: 'stop', grade_drop: 'grade↓', timeout: 'time' }
