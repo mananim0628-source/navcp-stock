@@ -59,12 +59,15 @@ export default function TradeStats({ closed, lang = 'ko' }: { closed: CT[]; lang
   )
 
   const enough = s.n >= MIN_N
-  const W = 300, Hh = 70
+  const W = 320, Hh = 130, PAD = 8
   const cmin = Math.min(0, ...s.curve), cmax = Math.max(0, ...s.curve)
-  const cx = (i: number) => (i / Math.max(1, s.curve.length - 1)) * W
-  const cy = (v: number) => Hh - ((v - cmin) / ((cmax - cmin) || 1)) * Hh
-  const path = s.curve.map((v, i) => `${i ? 'L' : 'M'}${cx(i).toFixed(1)},${cy(v).toFixed(1)}`).join(' ')
+  const cx = (i: number) => PAD + (i / Math.max(1, s.curve.length - 1)) * (W - PAD * 2)
+  const cy = (v: number) => PAD + (1 - (v - cmin) / ((cmax - cmin) || 1)) * (Hh - PAD * 2)
+  const line = s.curve.map((v, i) => `${i ? 'L' : 'M'}${cx(i).toFixed(1)},${cy(v).toFixed(1)}`).join(' ')
   const last = s.curve[s.curve.length - 1]
+  const lineCol = last >= 0 ? T.green : T.red
+  const gid = last >= 0 ? 'eqUp' : 'eqDn'
+  const area = `${line} L${cx(s.curve.length - 1).toFixed(1)},${cy(0).toFixed(1)} L${cx(0).toFixed(1)},${cy(0).toFixed(1)} Z`
 
   const Metric = ({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) => (
     <div style={{ flex: 1, minWidth: 92, border: `1px solid ${T.cardBr}`, borderRadius: 10, padding: '10px 12px' }}>
@@ -81,15 +84,22 @@ export default function TradeStats({ closed, lang = 'ko' }: { closed: CT[]; lang
         <span style={{ fontSize: 11.5, color: T.muted }}>{s.n}{t('건 종료', ' closed')}</span>
       </div>
 
-      {/* 자산곡선 */}
+      {/* 자산곡선 — 면적 그라데이션 + 제로 baseline (dataviz) */}
       <div style={{ marginTop: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: T.muted }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 11, color: T.muted }}>
           <span>{t('누적 손익 곡선', 'Equity curve')}</span>
-          <span style={{ color: last >= 0 ? T.green : T.red, fontWeight: 700 }}>{last >= 0 ? '+' : ''}{last.toFixed(1)}%</span>
+          <span>{t('최대 낙폭', 'Max DD')} <b style={{ color: T.red }}>{s.mdd}%</b> · <b style={{ color: lineCol, fontSize: 12 }}>{last >= 0 ? '+' : ''}{last.toFixed(1)}%</b></span>
         </div>
-        <svg viewBox={`0 0 ${W} ${Hh}`} width="100%" style={{ marginTop: 4 }} preserveAspectRatio="none">
-          <line x1={0} x2={W} y1={cy(0)} y2={cy(0)} stroke={T.cardBr} strokeWidth={1} />
-          <path d={path} fill="none" stroke={last >= 0 ? T.green : T.red} strokeWidth={1.6} />
+        <svg viewBox={`0 0 ${W} ${Hh}`} width="100%" height={130} preserveAspectRatio="none" style={{ marginTop: 6, display: 'block', overflow: 'visible' }}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={lineCol} stopOpacity="0.30" />
+              <stop offset="100%" stopColor={lineCol} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <line x1={PAD} x2={W - PAD} y1={cy(0)} y2={cy(0)} stroke={T.muted} strokeOpacity={0.35} strokeWidth={1} strokeDasharray="3 4" vectorEffect="non-scaling-stroke" />
+          <path d={area} fill={`url(#${gid})`} stroke="none" />
+          <path d={line} fill="none" stroke={lineCol} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
         </svg>
       </div>
 
