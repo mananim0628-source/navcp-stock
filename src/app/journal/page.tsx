@@ -5,7 +5,6 @@ import { getLang } from '@/lib/i18n'
 import LangToggle from '@/components/LangToggle'
 import JournalNote from '@/components/JournalNote'
 import TradeCalendar from '@/components/TradeCalendar'
-import RecentActivity from '@/components/RecentActivity'
 import TradeStats from '@/components/TradeStats'
 import PortfolioComposition from '@/components/PortfolioComposition'
 
@@ -227,15 +226,7 @@ export default async function Journal() {
           <div style={{ fontSize: 10.5, color: T.muted, marginTop: 12 }}>{en ? 'Simulation · not actual results' : '모의 시뮬레이션 · 실제 매매 결과 아님'}</div>
         </div>
 
-        {/* ② 보유·대기 포지션 — 히어로 바로 아래(한눈에 왜 수익/손실인지) */}
-        {open.length > 0 && (
-          <>
-            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 24, letterSpacing: '-0.01em' }}>{en ? 'Open & pending' : '보유 · 대기'} <span style={{ fontSize: 14, fontWeight: 700, color: T.muted }}>{open.length}</span></h2>
-            <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
-          </>
-        )}
-
-        {/* 포트폴리오 구성 — 지금 내 포트가 어떻게 짜여 있나 */}
+        {/* 포트폴리오 구성 — 보유는 우측 사이드로 이동. 메인은 포트구성 → 달력 → 그래프 */}
         <div style={{ marginTop: 22 }}>
           <PortfolioComposition positions={composition} cashPct={100 - investedPct} lang={lang} />
         </div>
@@ -285,12 +276,11 @@ export default async function Journal() {
             : '⚠️ 정보 제공·분석·교육 목적입니다. 모의 기록은 실제 매매 결과가 아니며 미래 수익을 보장하지 않습니다. 투자 판단과 책임은 본인에게 있습니다. 운영자는 대가를 받는 투자자문·리딩·투자일임을 제공하지 않습니다.'}
         </p>
        </main>
-       <aside className="chat-rail rail-auto">
-         <RecentActivity trades={trades.map(t => ({
-           id: t.id, symbol: t.symbol, name: t.name, country: t.country, status: t.status,
-           entry_date: t.entry_date, entry_score: t.entry_score,
-           exit_date: t.exit_date, exit_kind: t.exit_kind, pnl_pct: t.pnl_pct,
-         }))} lang={lang} />
+       <aside className="chat-rail" style={{ height: 'auto', overflow: 'visible' }}>
+         <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em', marginBottom: 12 }}>{en ? 'Holdings' : '현 보유'} <span style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>{open.length}</span></div>
+         {open.length > 0
+           ? <div style={{ display: 'grid', gap: 12 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
+           : <div style={{ ...cardStyle, borderRadius: 14, padding: 18, color: T.muted, fontSize: 13 }}>{en ? 'No open positions.' : '보유 중인 포지션이 없습니다.'}</div>}
        </aside>
       </div>
     </div>

@@ -1,16 +1,19 @@
 // navcp 디자인 토큰 (crypto 레포와 동일 팔레트 · brand-guide §2)
+// 2026 리프레시 — Linear/Mercury 계열 near-black 매트(파란 글래스 → 무광 중성).
+// 핵심: 표면은 불투명 매트, 보더는 얇은 hairline, 액센트(teal)는 절제.
 export const T = {
-  bg0: '#080c18', bg1: '#0e1426', bg2: '#141d36',
-  cardBg: 'rgba(30,42,78,0.62)', cardBr: 'rgba(120,150,220,0.14)', cardBlur: '12px',
-  green: '#28C76F', amber: '#E6A82E', red: '#F0654A',
+  bg0: '#0A0B0D', bg1: '#101114', bg2: '#16171B',      // near-black 캔버스(파란기 제거)
+  cardBg: '#141518', cardBr: 'rgba(255,255,255,0.08)', cardBlur: '12px',  // 매트 표면 + hairline
+  cardBg2: '#1B1C20',                                   // 한 단계 elevated(히어로 등)
+  green: '#2ED17E', amber: '#E7B34A', red: '#FF5D5D',   // 손익색 살짝 선명하게(네온 아님)
   teal: '#19C2B0', gold: '#C8992E', blue: '#6496ff',
-  text: '#E8ECF6', muted: '#8A93B5', onTeal: '#06121f',
-  // 국가 식별색 — 등급색(green/amber/red)과 겹치지 않는 계열로 골라 의미 충돌을 피한다.
-  kr: '#3B82F6', krSoft: 'rgba(59,130,246,0.14)',    // 국내 = 블루
-  us: '#A855F7', usSoft: 'rgba(168,85,247,0.14)',    // 미국 = 퍼플
+  text: '#ECEDEF', muted: '#9297A1', onTeal: '#06121f', // 대비 상향(muted ≥4.5:1)
+  // 국가 식별색 — 등급색과 겹치지 않는 계열
+  kr: '#4C8DFF', krSoft: 'rgba(76,141,255,0.14)',      // 국내 = 블루
+  us: '#B072FF', usSoft: 'rgba(176,114,255,0.14)',     // 미국 = 퍼플
 } as const
 
-export const bgGradient = `radial-gradient(ellipse at 20% 20%, ${T.bg2} 0%, ${T.bg0} 60%, ${T.bg0} 100%)`
+export const bgGradient = `radial-gradient(120% 90% at 30% 0%, ${T.bg2} 0%, ${T.bg0} 55%)`
 
 // ⚠️ 성능: backdrop-filter 는 요소마다 GPU 합성을 유발한다.
 // 카드가 100개 넘게 깔리는 목록에서 스크롤이 심하게 버벅여서 **카드에서는 제거**하고,
