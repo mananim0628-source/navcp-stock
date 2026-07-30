@@ -190,7 +190,7 @@ export default async function Home() {
         <span style={{ fontSize: 11, color: T.muted }}>{rows.length} {t('stocksUnit')} · {t('coverage')} {cov}</span>
         <Link href={`/scores?country=${isUs ? 'US' : 'KR'}`} style={{ marginLeft: 'auto', color: T.teal, fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>{t('viewDetail')}</Link>
       </div>
-      <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+      <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 8 }}>
         {top.map(r => {
           const total = Math.round(num(r.scores?.total)), col = gradeColor(total)
           const chg = r.scores?.chg != null ? Number(r.scores.chg) : null
@@ -309,13 +309,13 @@ export default async function Home() {
           <>
             <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{t('flowTitle')}</h2>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{t('flowNote')}</div>
-            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 8 }}>
               {flow.map(r => {
                 const total = Math.round(num(r.scores?.total))
                 return (
                   <Link key={r.symbol} href={`/scores/${r.symbol}`} style={{ ...cardStyle, borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: T.text }}>
-                    <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{r.name || r.symbol}</span>
-                    <span style={{ fontSize: 12, color: T.green, fontWeight: 700 }}>{t('netBuy')} {(r.scores as any)?.supply_days ?? ''}{t('days')}</span>
+                    <span style={{ fontWeight: 700, fontSize: 14, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.symbol}</span>
+                    <span style={{ fontSize: 12, color: T.green, fontWeight: 700, flexShrink: 0 }}>{t('netBuy')} {(r.scores as any)?.supply_days ?? ''}{t('days')}</span>
                     <span style={{ fontSize: 12, color: gradeColor(total), fontWeight: 700 }}>{total}{t('points')}</span>
                     <span style={{ color: T.muted, fontSize: 16 }}>›</span>
                   </Link>
