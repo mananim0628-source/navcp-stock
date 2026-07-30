@@ -199,7 +199,7 @@ export default async function Home() {
               <span style={{ width: 36, height: 36, borderRadius: '50%', border: `2.5px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, color: col, flexShrink: 0 }}>{total}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.symbol}</span>
-                <span style={{ display: 'block', fontSize: 11, color: col, fontWeight: 700 }}>{gradeLabel(total, lang)}</span>
+                <span style={{ display: 'block', fontSize: 11, color: col, fontWeight: 700 }}>{gradeLabel(total, lang)}{(() => { const lv = Number((r.scores as any)?.leverage); return lv ? <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 900, color: T.gold, border: `1px solid ${T.gold}66`, borderRadius: 4, padding: '0 4px' }}>{Math.abs(lv)}x{lv < 0 ? (isEn ? ' INV' : ' 인버스') : ''}</span> : null })()}</span>
               </span>
               <span style={{ textAlign: 'right', flexShrink: 0 }}>
                 <span style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>{priceTxt(r, isUs)}</span>
