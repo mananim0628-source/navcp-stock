@@ -21,6 +21,14 @@ button { font-family: inherit; }
   .chat-rail { width: 100%; position: static; height: 520px; }
 }
 
+/* 헤더 반응형 — 모바일에선 로고는 위, 내비 링크는 아래 '가로 스크롤 스트립'으로(넘침·찌그러짐 방지) */
+.topnav::-webkit-scrollbar { height: 0; }
+@media (max-width: 720px) {
+  .topbar { flex-wrap: wrap; gap: 8px; }
+  .topnav { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 14px; }
+  .topnav > * { flex-shrink: 0; }
+}
+
 /* 숫자 가독성 — 동폭 숫자(tabular numerals)로 자릿수 정렬(대시보드 표준 규칙) */
 body { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 /* 대비 확보: 저대비 텍스트 금지 원칙에 따라 muted 최소 대비 유지 */

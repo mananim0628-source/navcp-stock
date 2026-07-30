@@ -229,9 +229,9 @@ export default async function Home() {
   return (
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
-        <div style={{ maxWidth: 1360, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text }}>🧭 {isEn ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{t('brandSuffix')}</span></Link>
-          <nav style={{ display: 'flex', gap: 16, fontSize: 14, alignItems: 'center' }}>
+        <div className="topbar" style={{ maxWidth: 1360, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text, whiteSpace: 'nowrap' }}>🧭 {isEn ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{t('brandSuffix')}</span></Link>
+          <nav className="topnav" style={{ display: 'flex', gap: 16, fontSize: 14, alignItems: 'center' }}>
             {freshTxt && <span style={{ fontSize: 11, color: T.muted }}>🕐 {freshTxt}</span>}
             <Link href="/scores?country=KR" style={{ color: T.teal, fontWeight: 700 }}>{t('navKR')}</Link>
             <Link href="/scores?country=US" style={{ color: T.teal, fontWeight: 700 }}>{t('navUS')}</Link>
