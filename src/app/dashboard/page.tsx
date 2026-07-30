@@ -153,9 +153,9 @@ export default async function Home() {
          : Number(r.scores.price).toLocaleString('ko-KR') + '원'
 
   const IdxBox = ({ label, d }: { label: string; d: Awaited<ReturnType<typeof idx>> }) => (
-    <div style={{ ...cardStyle, borderRadius: 12, padding: '10px 12px', flex: 1, minWidth: 96 }}>
-      <div style={{ fontSize: 11, color: T.muted }}>{label}</div>
-      <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2 }}>{d ? d.last.toLocaleString() : '—'}</div>
+    <div style={{ ...cardStyle, borderRadius: 12, padding: '10px 12px', minWidth: 0 }}>
+      <div style={{ fontSize: 11, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d ? d.last.toLocaleString() : '—'}</div>
       {d && <div style={{ fontSize: 11, fontWeight: 700, color: d.chg > 0 ? T.green : d.chg < 0 ? T.red : T.muted }}>{d.chg > 0 ? '▲' : d.chg < 0 ? '▼' : ''}{Math.abs(d.chg)}%</div>}
     </div>
   )
@@ -257,14 +257,14 @@ export default async function Home() {
 
         {/* 지수 종합 */}
         <div style={{ fontSize: 12, color: T.muted, letterSpacing: 1, marginTop: 22, marginBottom: 8 }}>{t("marketSummary")}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="idx-grid">
           <IdxBox label="KOSPI" d={kospi} /><IdxBox label="KOSDAQ" d={kosdaq} />
           <IdxBox label="나스닥" d={nasdaq} /><IdxBox label="S&P500" d={sp500} />
           <IdxBox label="VIX(공포)" d={vix} /><IdxBox label="원/달러" d={usdkrw} />
         </div>
 
         {/* 메인 두 축 — 국내 / 미국 */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginTop: 22 }}>
+        <div className="market-grid" style={{ marginTop: 22 }}>
           <MarketPanel title={t("krStocks")} rows={kr} top={krTop} isUs={false} cov={avgCov(kr)} />
           <MarketPanel title={t("usStocks")} rows={us} top={usTop} isUs={true} cov={avgCov(us)} />
         </div>
@@ -273,7 +273,7 @@ export default async function Home() {
         </div>
 
         {/* 공시 피드 (국내 DART + 미국 SEC 8-K) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14, marginTop: 26 }}>
+        <div className="feed-grid" style={{ marginTop: 26 }}>
           <FilingFeed title={t('goodNews')} items={goodMix} color={T.green} empty={t('noFilings')} lang={lang} />
           <FilingFeed title={t('badNews')} items={badMix} color={T.red} empty={t('noFilings')} lang={lang} />
         </div>

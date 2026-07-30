@@ -29,6 +29,19 @@ button { font-family: inherit; }
   .topnav > * { flex-shrink: 0; }
 }
 
+/* 본문 그리드 — minmax(0,1fr)로 컬럼이 내용보다 작아질 수 있게 해 '오른쪽 잘림' 원천 차단 */
+.idx-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.market-grid, .feed-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 900px) {
+  .market-grid, .feed-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .idx-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .idx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* 숫자 가독성 — 동폭 숫자(tabular numerals)로 자릿수 정렬(대시보드 표준 규칙) */
 body { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 /* 대비 확보: 저대비 텍스트 금지 원칙에 따라 muted 최소 대비 유지 */
