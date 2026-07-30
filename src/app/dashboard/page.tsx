@@ -357,7 +357,7 @@ export default async function Home() {
        <aside className="chat-rail" style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'auto', overflow: 'visible' }}>
          {/* 채팅을 위로 · 각 패널이 자기 높이를 관리해 레일 자체 스크롤바 없음 */}
          <div style={{ height: 420, flexShrink: 0 }}><CommunityChat lang={lang} /></div>
-         <RecentActivity max={7} summary={paperSummary} trades={paper.filter(t => t.rule === 'context1' && t.status !== 'canceled').map((t: any) => ({
+         <RecentActivity max={3} summary={paperSummary} trades={paper.filter(t => t.rule === 'context1' && t.status !== 'canceled').map((t: any) => ({
            id: t.id, symbol: t.symbol, name: t.name, country: t.country, status: t.status,
            entry_date: t.entry_date, entry_score: t.entry_score,
            exit_date: t.exit_date, exit_kind: t.exit_kind, pnl_pct: t.pnl_pct,
