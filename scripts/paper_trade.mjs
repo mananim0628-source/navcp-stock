@@ -23,6 +23,9 @@ const MIN_SCORE = Number(process.env.PT_MIN || 62)       // 최소 점수(중립
 const MIN_COVERAGE = 0.9                                  // 커버리지 낮으면 판정 제외(신뢰 부족)
 const ATR_STOP = 1.2                                      // 손절 = 진입가 - 1.2×ATR (빠른 손절)
 const ATR_TARGET = 2.8                                    // 목표 = 진입가 + 2.8×ATR (손익비 2.33 = R 2.3)
+// 트레일링(연속) — RULE=trail1일 때. 고정목표 대신 고점−K×ATR로 손절을 끌어올려 이익을 잠근다.
+const TRAIL_K = Number(process.env.PT_TRAILK || 2.5)     // 트레일 배수(고점 − K×ATR)
+const BE_ATR = Number(process.env.PT_BE || 1.0)          // +N×ATR 도달 시 손절선을 본전(진입가)으로 이동
 const MAX_DAYS = 20                                       // 최대 보유 20거래일(타임아웃)
 const MAX_OPEN = 12                                       // 동시 보유 상한(집중 방지)
 
@@ -94,7 +97,12 @@ function entryReason(sc) {
 }
 function exitReason(kind, t, price, sc) {
   const p = pct(price, t.entry_price)
-  const base = {
+  let base
+  if (RULE === 'trail1' && (kind === 'target' || kind === 'stop')) {
+    base = kind === 'target'
+      ? `트레일링 손절선 ${Number(price).toLocaleString()} 도달 → 이익 잠금 청산`
+      : `초기 손절선 이탈 → 청산(트레일 전)`
+  } else base = {
     target: `목표가 ${t.target_price} 도달 → 청산`,
     stop: `손절가 ${t.stop_price} 이탈 → 청산`,
     grade_drop: `등급이 진입 시(${t.entry_grade})보다 두 단계 이상 하락 → 청산`,
@@ -129,7 +137,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
 
   // ── 0) 대기(pending) 체결 — 장전 판정은 '다음 시가'로만 체결한다(판정 시점엔 시가 미확정 = 정직).
   //   판정일 이후 첫 캔들의 **시가**로 진입가를 확정하고 open 으로 전환. 손절·목표도 그 가격 기준.
-  const pending = await rest('stock_paper_trade?select=*&status=eq.pending')
+  const pending = await rest(`stock_paper_trade?select=*&status=eq.pending&rule=eq.${RULE}`)
   let filled = 0, canceled = 0
   const dayMs = 86400e3
   for (const t of pending) {
@@ -170,7 +178,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   }
 
   // ── 1) 보유 중 포지션 청산 판정 — 진입 이후 실제 캔들로만 본다
-  const open = await rest('stock_paper_trade?select=*&status=eq.open')
+  const open = await rest(`stock_paper_trade?select=*&status=eq.open&rule=eq.${RULE}`)
   let closed = 0
   for (const t of open) {
     const row = byS.get(t.symbol)
@@ -183,14 +191,30 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
     if (!after.length) continue
 
     let kind = null, price = null, when = null
-    // ⚠️ 같은 봉에서 손절·목표가 동시에 닿으면 **손절을 우선**한다(의도적·보수적 규칙 —
-    //    일봉으론 어느 쪽이 먼저 닿았는지 알 수 없어, 성과를 유리하게 부풀리지 않는 쪽을 택함).
-    for (let i = 0; i < after.length; i++) {
-      const [d, , h, l, c] = after[i]
-      const dd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
-      if (t.stop_price != null && Number(l) <= Number(t.stop_price)) { kind = 'stop'; price = Number(t.stop_price); when = dd; break }
-      if (t.target_price != null && Number(h) >= Number(t.target_price)) { kind = 'target'; price = Number(t.target_price); when = dd; break }
-      if (i + 1 >= MAX_DAYS) { kind = 'timeout'; price = Number(c); when = dd; break }
+    if (RULE === 'trail1') {
+      // 연속 트레일링 — 고정목표 없음. +BE_ATR×ATR 도달 시 손절을 본전으로, 이후 고점−K×ATR로 '위로만' 끌어올림.
+      // 끌어올린 손절선이 진입가 위에서 깨지면 '이익잠금 청산'(target), 아래면 손절(stop).
+      const atr = (Number(t.entry_price) - Number(t.stop_price)) / ATR_STOP
+      let trail = Number(t.stop_price), hi = Number(t.entry_price), be = false
+      for (let i = 0; i < after.length; i++) {
+        const [d, , h, l, c] = after[i]
+        const dd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
+        // 보수적: '어제까지 확정된' trail로 오늘 저가를 먼저 검사(당일 고점으로 올린 trail로 당일 청산 금지)
+        if (Number(l) <= trail) { kind = trail >= Number(t.entry_price) ? 'target' : 'stop'; price = trail; when = dd; break }
+        hi = Math.max(hi, Number(h))
+        if (!be && atr > 0 && hi >= Number(t.entry_price) + BE_ATR * atr) { trail = Math.max(trail, Number(t.entry_price)); be = true }
+        if (be && atr > 0) trail = Math.max(trail, hi - TRAIL_K * atr)
+        if (i + 1 >= MAX_DAYS) { kind = 'timeout'; price = Number(c); when = dd; break }
+      }
+    } else {
+      // ⚠️ 고정목표 규칙 — 같은 봉에서 손절·목표 동시 도달 시 손절 우선(보수적, 부풀림 방지).
+      for (let i = 0; i < after.length; i++) {
+        const [d, , h, l, c] = after[i]
+        const dd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
+        if (t.stop_price != null && Number(l) <= Number(t.stop_price)) { kind = 'stop'; price = Number(t.stop_price); when = dd; break }
+        if (t.target_price != null && Number(h) >= Number(t.target_price)) { kind = 'target'; price = Number(t.target_price); when = dd; break }
+        if (i + 1 >= MAX_DAYS) { kind = 'timeout'; price = Number(c); when = dd; break }
+      }
     }
     // 등급 급락 청산 — 즉시 종가(미래가정)가 아니라 **가장 최근 실제 봉의 종가**로 체결(정직).
     if (!kind) {
@@ -242,7 +266,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   //   보유 종목이 평단 대비 -ADD_DROP% 이상 하락했지만 **점수가 여전히 유효**하면,
   //   현금 쿠션 범위에서 1회 추가 매수해 평단을 낮춘다. 손절선은 새 평단 기준으로 재설정.
   //   ⚠️ 예산·위험(히트)은 신규 진입과 동일 한도를 지킨다. pending 포지션도 자본/위험에 포함.
-  const openLike = await rest('stock_paper_trade?select=*&status=in.(open,pending)')
+  const openLike = await rest(`stock_paper_trade?select=*&status=in.(open,pending)&rule=eq.${RULE}`)
   let usedNow = openLike.reduce((a, r) => a + (Number(r.weight_pct) || 0), 0)   // 총투입%(open+pending)
   let heatNow = openLike.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)      // 총위험%(open+pending)
   let added = 0
@@ -290,7 +314,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   }
 
   // ── 2) 신규 진입 판정 — 종합 근거 기반(점수 하나로 자르지 않음) + 거시 국면 반영
-  const stillOpenRows = await rest('stock_paper_trade?select=symbol,risk_pct,weight_pct,status,tier&status=in.(open,pending)')
+  const stillOpenRows = await rest(`stock_paper_trade?select=symbol,risk_pct,weight_pct,status,tier&status=in.(open,pending)&rule=eq.${RULE}`)
   const room = Math.max(0, MAX_OPEN - stillOpenRows.length)
   const openSyms = new Set(stillOpenRows.map(r => r.symbol))
   let openHeat = stillOpenRows.reduce((a, r) => a + (Number(r.risk_pct) || 0), 0)   // 현재 열린 위험 합
