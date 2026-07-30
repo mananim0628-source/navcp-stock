@@ -113,8 +113,9 @@ export default async function Journal() {
     const badge = isPending ? { txt: en ? 'PENDING' : '대기', c: T.amber }
       : isOpen ? { txt: en ? 'HOLDING' : '보유중', c: T.teal } : kindBadge(t.exit_kind)
 
+    const tint = pnl == null || pnl === 0 ? (cardStyle as any).background : `linear-gradient(180deg, ${col}12, ${col}04), ${(cardStyle as any).background}`
     return (
-      <div style={{ ...cardStyle, borderRadius: 14, padding: 16 }}>
+      <div style={{ ...cardStyle, borderRadius: 14, padding: 16, background: tint }}>
         {/* 상단 — 종목 + 상태배지 (좌) · 큰 손익 %/₩ (우, 초록/빨강) */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -138,8 +139,8 @@ export default async function Journal() {
         {/* 진행 바 — 손절 ↔ 목표 사이 지금 위치가 한눈에 */}
         {frac != null && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ position: 'relative', height: 6, borderRadius: 4, background: `linear-gradient(90deg, ${T.red}55, ${T.muted}44, ${T.green}55)` }}>
-              <div style={{ position: 'absolute', top: -3, left: `calc(${(frac * 100).toFixed(1)}% - 6px)`, width: 12, height: 12, borderRadius: '50%', background: col, border: '2px solid #0b1020' }} />
+            <div style={{ position: 'relative', height: 7, borderRadius: 5, background: `linear-gradient(90deg, ${T.red}66, ${T.muted}33 50%, ${T.green}66)` }}>
+              <div style={{ position: 'absolute', top: -3.5, left: `calc(${(frac * 100).toFixed(1)}% - 7px)`, width: 14, height: 14, borderRadius: '50%', background: col, border: '2.5px solid #0b1020', boxShadow: `0 0 0 3px ${col}33` }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: T.muted, marginTop: 4 }}>
               <span style={{ color: T.red }}>{en ? 'Stop' : '손절'} {money(stop, isUS)}</span>
@@ -187,7 +188,7 @@ export default async function Journal() {
         <h1 style={{ fontSize: 23, fontWeight: 900 }}>{en ? 'Rule Validation (auto-simulated)' : '모의매매 검증 (규칙 자동)'}</h1>
 
         {/* 프레임 고지 — 가장 먼저 읽히게 */}
-        <div style={{ ...cardStyle, borderRadius: 12, padding: 14, marginTop: 12, borderLeft: `3px solid ${T.amber}` }}>
+        <div style={{ ...cardStyle, borderRadius: 12, padding: '12px 14px', marginTop: 12 }}>
           <p style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.8, margin: 0 }}>
             {en
               ? <>These are <b style={{ color: T.text }}>simulated records</b>: the rule bought and sold on paper so we can measure whether the score actually works. <b style={{ color: T.text }}>No real orders are placed and this is not a buy or sell signal.</b> Entry uses the closing price on the day the rule triggered; exits are judged only from candles after entry, so nothing is decided with hindsight.</>
@@ -195,27 +196,42 @@ export default async function Journal() {
           </p>
         </div>
 
-        {/* ① 히어로 — 내 검증 성적 한눈에(로빈후드式 큰 숫자 하나 + 색) */}
-        <div style={{ ...cardStyle, borderRadius: 16, padding: '20px 18px', marginTop: 14, borderTop: `3px solid ${totalWon >= 0 ? T.green : T.red}` }}>
-          <div style={{ fontSize: 12, color: T.muted }}>{en ? `My validation P/L · seed ${SEED.toLocaleString()}` : `내 모의 검증 성적 · 시드 ${SEED.toLocaleString('ko-KR')}원`}</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 32, fontWeight: 900, color: totalWon >= 0 ? T.green : T.red, lineHeight: 1 }}>{won(totalWon)}</span>
-            <span style={{ fontSize: 16, fontWeight: 800, color: totalWon >= 0 ? T.green : T.red }}>{totalPct >= 0 ? '+' : ''}{totalPct}%</span>
+        {/* ① 히어로 — focal point. 큰 숫자 하나 + 색, 나머지는 위계로 눌러 정돈 */}
+        <div style={{ borderRadius: 18, padding: '22px 20px', marginTop: 16, background: `radial-gradient(120% 140% at 0% 0%, ${(totalWon >= 0 ? T.green : T.red)}14, rgba(255,255,255,0.03) 42%), rgba(255,255,255,0.02)`, border: `1px solid ${T.cardBr}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted, letterSpacing: '0.01em' }}>{en ? 'My validation P/L' : '내 모의 검증 성적'}</span>
+            <span style={{ fontSize: 11, color: T.muted }}>{en ? `seed ${SEED.toLocaleString()}` : `시드 ${SEED.toLocaleString('ko-KR')}원`}</span>
           </div>
-          <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: T.muted, flexWrap: 'wrap' }}>
-            <span>{en ? 'Unrealized' : '평가손익(보유)'} <b style={{ color: unrealWon >= 0 ? T.green : T.red }}>{won(unrealWon)}</b></span>
-            <span>{en ? 'Realized' : '실현손익(종료)'} <b style={{ color: realizedWon >= 0 ? T.green : T.red }}>{won(realizedWon)}</b></span>
-            <span>{en ? 'Invested' : '투입'} <b style={{ color: T.text }}>{investedPct.toFixed(0)}%</b> · {en ? 'cash' : '현금'} {(100 - investedPct).toFixed(0)}%</span>
-            <span>{en ? 'Holding' : '보유'} <b style={{ color: T.text }}>{held.length}</b></span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 40, fontWeight: 900, letterSpacing: '-0.02em', color: totalWon >= 0 ? T.green : T.red, lineHeight: 1 }}>{won(totalWon)}</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: totalWon >= 0 ? T.green : T.red, padding: '3px 9px', borderRadius: 8, background: (totalWon >= 0 ? T.green : T.red) + '20' }}>{totalPct >= 0 ? '+' : ''}{totalPct}%</span>
           </div>
-          <div style={{ fontSize: 10.5, color: T.muted, marginTop: 8 }}>{en ? 'Simulation · not actual results' : '모의 시뮬레이션 · 실제 매매 결과 아님'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', marginTop: 18, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14, gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 3 }}>{en ? 'Unrealized' : '평가손익 (보유)'}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: unrealWon >= 0 ? T.green : T.red }}>{won(unrealWon)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 3 }}>{en ? 'Realized' : '실현손익 (종료)'}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: realizedWon >= 0 ? T.green : T.red }}>{won(realizedWon)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 3 }}>{en ? 'Invested / Cash' : '투입 / 현금'}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{investedPct.toFixed(0)}% <span style={{ color: T.muted, fontWeight: 600 }}>/ {(100 - investedPct).toFixed(0)}%</span></div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 3 }}>{en ? 'Holding' : '보유'}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{held.length}<span style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>{en ? '' : '종목'}</span></div>
+            </div>
+          </div>
+          <div style={{ fontSize: 10.5, color: T.muted, marginTop: 12 }}>{en ? 'Simulation · not actual results' : '모의 시뮬레이션 · 실제 매매 결과 아님'}</div>
         </div>
 
         {/* ② 보유·대기 포지션 — 히어로 바로 아래(한눈에 왜 수익/손실인지) */}
         {open.length > 0 && (
           <>
-            <h2 style={{ fontSize: 16, fontWeight: 800, marginTop: 22 }}>{en ? 'Open & pending' : '보유 · 대기'}</h2>
-            <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
+            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 24, letterSpacing: '-0.01em' }}>{en ? 'Open & pending' : '보유 · 대기'} <span style={{ fontSize: 14, fontWeight: 700, color: T.muted }}>{open.length}</span></h2>
+            <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
           </>
         )}
 
@@ -254,7 +270,7 @@ export default async function Journal() {
           )}
         </div>
 
-        <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{en ? 'Closed' : '종료된 기록'}</h2>
+        <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 30, letterSpacing: '-0.01em' }}>{en ? 'Closed' : '종료된 기록'} <span style={{ fontSize: 14, fontWeight: 700, color: T.muted }}>{closed.length}</span></h2>
         {closed.length === 0 ? (
           <div style={{ ...cardStyle, borderRadius: 14, padding: 20, marginTop: 12, color: T.muted, fontSize: 13 }}>
             {en ? 'No closed records yet — they appear as positions exit.' : '아직 종료된 기록이 없습니다 — 청산이 발생하면 여기에 쌓입니다.'}
