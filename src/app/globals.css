@@ -54,3 +54,8 @@ a { text-decoration: none; }
 
 /* 매매일지 우측 레일은 내용만큼만 차지(채팅처럼 화면을 다 쓰지 않음) */
 .rail-auto { height: auto !important; max-height: calc(100vh - 104px); overflow-y: auto; }
+/* 레일 내부 스크롤바 — 얇고 은은하게(스크롤 따라가되 거슬리지 않게) */
+.rail-auto::-webkit-scrollbar { width: 6px; }
+.rail-auto::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+.rail-auto::-webkit-scrollbar-track { background: transparent; }
+.rail-auto { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }

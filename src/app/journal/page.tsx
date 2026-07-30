@@ -266,9 +266,25 @@ export default async function Journal() {
           <div style={{ ...cardStyle, borderRadius: 14, padding: 20, marginTop: 12, color: T.muted, fontSize: 13 }}>
             {en ? 'No closed records yet — they appear as positions exit.' : '아직 종료된 기록이 없습니다 — 청산이 발생하면 여기에 쌓입니다.'}
           </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{closed.map(t => <Card key={t.id} t={t} />)}</div>
-        )}
+        ) : (() => {
+          // 익절(수익) / 손절(손실) 두 분류로 나눠 보기 쉽게. 각 그룹 합계도 함께.
+          const wins = closed.filter(t => Number(t.pnl_pct) > 0)
+          const losses = closed.filter(t => Number(t.pnl_pct) <= 0)
+          const Group = ({ title, color, list }: { title: string; color: string; list: Trade[] }) => list.length === 0 ? null : (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 3, background: color }} />
+                <span style={{ fontSize: 14.5, fontWeight: 800, color }}>{title}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>{list.length}{en ? '' : '건'}</span>
+              </div>
+              <div style={{ display: 'grid', gap: 12 }}>{list.map(t => <Card key={t.id} t={t} />)}</div>
+            </div>
+          )
+          return <>
+            <Group title={en ? 'Wins' : '익절'} color={T.green} list={wins} />
+            <Group title={en ? 'Losses' : '손절'} color={T.red} list={losses} />
+          </>
+        })()}
 
         <p style={{ fontSize: 12, color: T.muted, marginTop: 28, lineHeight: 1.7, borderTop: `1px solid ${T.cardBr}`, paddingTop: 14 }}>
           {en
@@ -276,7 +292,7 @@ export default async function Journal() {
             : '⚠️ 정보 제공·분석·교육 목적입니다. 모의 기록은 실제 매매 결과가 아니며 미래 수익을 보장하지 않습니다. 투자 판단과 책임은 본인에게 있습니다. 운영자는 대가를 받는 투자자문·리딩·투자일임을 제공하지 않습니다.'}
         </p>
        </main>
-       <aside className="chat-rail" style={{ height: 'auto', overflow: 'visible' }}>
+       <aside className="chat-rail rail-auto">
          <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em', marginBottom: 12 }}>{en ? 'Holdings' : '현 보유'} <span style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>{open.length}</span></div>
          {open.length > 0
            ? <div style={{ display: 'grid', gap: 12 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
