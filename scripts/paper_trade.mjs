@@ -325,7 +325,9 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   for (const r of cache) {
     const sc = r.scores || {}
     if (openSyms.has(r.symbol)) continue
-    if (Number(r.coverage) < MIN_COVERAGE) continue
+    // 레버리지 상품은 재무·공시가 구조상 없어 커버리지 상한이 ~60% → 기준 완화(대신 점수·근거로 게이팅).
+    const covFloor = sc.leverage != null ? 0.5 : MIN_COVERAGE
+    if (Number(r.coverage) < covFloor) continue
     if (!(Number(sc.price) > 0) || !(Number(sc.atr14) > 0)) continue
     const macroFav = r.country === 'US' ? macroUS : macroKR
     const reasons = entrySignal(sc, macroFav)

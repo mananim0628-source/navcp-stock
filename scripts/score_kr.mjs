@@ -485,9 +485,14 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   // 이번 런에 갱신 안 된 stale 행 삭제 — ⚠️ 반드시 country=KR 로 스코프!
   //   (스코프 없으면 미국 행(더 오래된 cached_at)까지 지워져 US 유니버스가 통째로 사라짐 — 실제 사고 발생)
   try {
-    await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.KR&cached_at=lt.${encodeURIComponent(now)}`, {
+    // 보유(open/pending) 종목은 유니버스에서 빠져도 삭제하지 않는다 — 청산 판정·상세페이지 유지.
+    const heldRes = await fetch(`${SUPA_URL}/rest/v1/stock_paper_trade?country=eq.KR&status=in.(open,pending)&select=symbol`, { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } })
+    const heldSyms = heldRes.ok ? [...new Set((await heldRes.json()).map(r => r.symbol))] : []
+    const keepClause = heldSyms.length ? `&symbol=not.in.(${heldSyms.join(',')})` : ''
+    await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.KR&cached_at=lt.${encodeURIComponent(now)}${keepClause}`, {
       method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
     })
+    if (heldSyms.length) console.log(`[KR] 보유 ${heldSyms.length}종목 stale 삭제 제외`)
   } catch (e) {}
   // 일별 스냅샷 적재(백테스트 이력) — (d,symbol) 유니크, 하루 중 재실행 시 갱신
   if (history.length) {

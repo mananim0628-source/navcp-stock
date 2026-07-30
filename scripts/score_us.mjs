@@ -382,6 +382,24 @@ async function fetchUniverse() {
   const stocks = out.filter(o => o.leverage == null).sort((a, b) => b.cap - a.cap).slice(0, TARGET)
   const levs = out.filter(o => o.leverage != null).sort((a, b) => b.cap - a.cap).slice(0, LEV_TARGET)
   console.log(`[US] 일반주 ${stocks.length} + 레버리지 ${levs.length} (${levs.map(l => l.symbol).join(',')})`)
+  // 보유(open/pending) 중인데 유니버스에서 빠진 종목을 강제 편입 — 청산 판정·상세페이지가 죽지 않게(프레시 갱신).
+  try {
+    const heldRes = await fetch(`${SUPA_URL}/rest/v1/stock_paper_trade?country=eq.US&status=in.(open,pending)&select=symbol`, { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } })
+    const heldSyms = heldRes.ok ? [...new Set((await heldRes.json()).map(r => r.symbol))] : []
+    const have = new Set([...stocks, ...levs].map(s => s.symbol))
+    const missing = heldSyms.filter(s => !have.has(s))
+    if (missing.length) {
+      const st = await tossGet('/api/v1/stocks?symbols=' + missing.join(','))
+      const list = Array.isArray(st?.result) ? st.result : (st?.result?.stocks || [])
+      const pinned = list.map(x => ({
+        symbol: x.symbol, name: x.englishName || x.name, market: x.market,
+        shares: Number(x.sharesOutstanding) || 0, price: 0, cap: 0,   // 가격/시총은 본문 루프가 캔들로 확정
+        leverage: x.leverageFactor != null ? Number(x.leverageFactor) : null, pinned: true,
+      }))
+      console.log(`[US] 보유 유지 편입 ${pinned.length} (${pinned.map(p => p.symbol).join(',')})`)
+      return [...stocks, ...levs, ...pinned]
+    }
+  } catch (e) { console.log('[US] 보유 편입 실패', String(e.message).slice(0, 60)) }
   return [...stocks, ...levs]
 }
 
@@ -483,14 +501,19 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
   //   삭제하면 캐시가 영구 축소된다(발행주식수 못 받은 코인 통째 누락 → stale로 오인 삭제).
   //   기존 US 캐시 대비 이번 적재가 **70% 미만**이면 나쁜 fetch로 보고 삭제를 건너뛴다.
   try {
+    // 보유(open/pending) 종목은 유니버스에서 빠져도 삭제하지 않는다 — 청산 판정·상세페이지가 죽지 않게.
+    const heldRes = await fetch(`${SUPA_URL}/rest/v1/stock_paper_trade?country=eq.US&status=in.(open,pending)&select=symbol`, { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } })
+    const heldSyms = heldRes.ok ? [...new Set((await heldRes.json()).map(r => r.symbol))] : []
+    const keepClause = heldSyms.length ? `&symbol=not.in.(${heldSyms.join(',')})` : ''
     const prevRes = await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.US&select=symbol`, {
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
     })
     const prevCount = prevRes.ok ? (await prevRes.json()).length : 0
     if (ok >= prevCount * 0.7 || prevCount === 0) {
-      await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.US&cached_at=lt.${encodeURIComponent(now)}`, {
+      await fetch(`${SUPA_URL}/rest/v1/stock_score_cache?country=eq.US&cached_at=lt.${encodeURIComponent(now)}${keepClause}`, {
         method: 'DELETE', headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'return=minimal' },
       })
+      if (heldSyms.length) console.log(`[US] 보유 ${heldSyms.length}종목 stale 삭제 제외`)
     } else {
       console.log(`[US] ⚠️ 유니버스 급감(${ok} < 기존 ${prevCount}의 70%) → stale 삭제 건너뜀(캐시 보존)`)
     }
