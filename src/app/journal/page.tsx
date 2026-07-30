@@ -55,6 +55,23 @@ export default async function Journal() {
   })
   const investedPct = composition.reduce((a, p) => a + (Number(p.weight_pct) || 0), 0)
 
+  // ── 히어로 집계 — 시드 대비 ₩ 손익(로빈후드式 '큰 숫자 하나'). 모의 시뮬레이션 기준.
+  const SEED = 10_000_000
+  const curOf = (sym: string) => Number((scMap.get(sym) as any)?.price) || null
+  let unrealWon = 0, realizedWon = 0
+  for (const t of held) {
+    if (t.status !== 'open') continue
+    const cur = curOf(t.symbol), w = Number(t.weight_pct) || 0
+    if (cur && t.entry_price) unrealWon += (SEED * w / 100) * ((cur - Number(t.entry_price)) / Number(t.entry_price))
+  }
+  for (const t of closed) {
+    const w = Number(t.weight_pct) || 0
+    if (t.pnl_pct != null) realizedWon += (SEED * w / 100) * (Number(t.pnl_pct) / 100)
+  }
+  const totalWon = Math.round(unrealWon + realizedWon)
+  const totalPct = +((totalWon / SEED) * 100).toFixed(2)
+  const won = (v: number) => (v >= 0 ? '+' : '−') + Math.abs(Math.round(v)).toLocaleString('ko-KR') + '원'
+
   // 집계는 **종료된 기록만**. 표본이 적으면 수치를 앞세우지 않는다.
   const wins = closed.filter(t => Number(t.pnl_pct) > 0).length
   const enough = closed.length >= 20
@@ -67,54 +84,83 @@ export default async function Journal() {
     ? { target: 'Target hit', stop: 'Stop hit', grade_drop: 'Grade dropped', timeout: 'Time limit' }
     : { target: '목표 도달', stop: '손절', grade_drop: '등급 하락', timeout: '보유기간 만료' }
 
+  // 청산 종류별 배지(색·라벨)
+  const kindBadge = (k: string | null) => {
+    if (k === 'target') return { txt: en ? 'TARGET' : '익절', c: T.green }
+    if (k === 'stop') return { txt: en ? 'STOP' : '손절', c: T.red }
+    if (k === 'grade_drop') return { txt: en ? 'GRADE↓' : '등급하락', c: T.amber }
+    if (k === 'timeout') return { txt: en ? 'TIMEOUT' : '기간만료', c: T.muted }
+    return { txt: k ?? '', c: T.muted }
+  }
+  // 진입 근거를 '한 줄'로 — 기술적 접두([...])·부가정보(||) 제거하고 사유만
+  const oneLineReason = (s: string | null) => s ? s.replace(/^\[[^\]]*\]\s*/, '').split('||')[0].trim() : ''
+
   const Card = ({ t }: { t: Trade }) => {
     const isUS = t.country === 'US'
-    const pnl = t.pnl_pct == null ? null : Number(t.pnl_pct)
-    const col = pnl == null ? T.muted : pnl > 0 ? T.green : T.red
+    const isOpen = t.status === 'open', isPending = t.status === 'pending'
+    const cur = curOf(t.symbol)
+    // 표시 손익: 보유=미실현(현재가 대비), 종료=확정 pnl
+    const pnl = isOpen && cur && t.entry_price ? +(((cur - Number(t.entry_price)) / Number(t.entry_price)) * 100).toFixed(2)
+      : t.pnl_pct != null ? Number(t.pnl_pct) : null
+    const wSeed = SEED * (Number(t.weight_pct) || 0) / 100
+    const pnlWon = pnl != null ? Math.round(wSeed * pnl / 100) : null
+    const col = pnl == null ? T.muted : pnl > 0 ? T.green : pnl < 0 ? T.red : T.muted
+    // 진행 바 — 손절 ●───◐(현재)───● 목표
+    const stop = t.stop_price != null ? Number(t.stop_price) : null
+    const tgt = t.target_price != null ? Number(t.target_price) : null
+    const ref = isOpen ? cur : t.exit_price != null ? Number(t.exit_price) : cur
+    const frac = stop != null && tgt != null && ref != null && tgt > stop ? Math.max(0, Math.min(1, (ref - stop) / (tgt - stop))) : null
+    const badge = isPending ? { txt: en ? 'PENDING' : '대기', c: T.amber }
+      : isOpen ? { txt: en ? 'HOLDING' : '보유중', c: T.teal } : kindBadge(t.exit_kind)
+
     return (
       <div style={{ ...cardStyle, borderRadius: 14, padding: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, fontWeight: 900, padding: '2px 6px', borderRadius: 5, background: isUS ? T.us : T.kr, color: '#0b1020' }}>{isUS ? 'US' : 'KR'}</span>
-          <Link href={`/scores/${t.symbol}`} style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{t.name || t.symbol}</Link>
-          {t.entry_score != null && (
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: gradeColor(t.entry_score) }}>
-              {en ? 'Entry' : '진입'} {t.entry_score}{en ? 'pts' : '점'}
-            </span>
-          )}
-          {t.session && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 5, background: 'rgba(25,194,176,0.15)', color: T.teal }}>{t.session === 'close' ? (en ? 'CLOSE' : '종가') : (en ? 'PRE' : '장전')}</span>}
-          {t.weight_pct != null && <span style={{ fontSize: 11, color: T.muted }}>{en ? 'weight' : '비중'} <b style={{ color: T.text }}>{t.weight_pct}%</b></span>}
-          {t.status === 'pending' && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 5, background: 'rgba(230,168,46,0.18)', color: T.amber }}>{en ? 'PENDING' : '체결 대기'}</span>}
-          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: T.muted }}>
-            {t.entry_date}{t.exit_date ? ` → ${t.exit_date}` : t.status === 'pending' ? ` · ${en ? 'awaiting next open' : '다음 시가 체결 예정'}` : ` · ${en ? 'holding' : '보유 중'}`}
-          </span>
-          {pnl != null && <span style={{ fontSize: 15, fontWeight: 900, color: col }}>{pnl > 0 ? '+' : ''}{pnl}%</span>}
+        {/* 상단 — 종목 + 상태배지 (좌) · 큰 손익 %/₩ (우, 초록/빨강) */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 900, padding: '2px 6px', borderRadius: 5, background: isUS ? T.us : T.kr, color: '#0b1020' }}>{isUS ? 'US' : 'KR'}</span>
+              <Link href={`/scores/${t.symbol}`} style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{t.name || t.symbol}</Link>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 20, background: badge.c + '26', color: badge.c }}>{badge.txt}</span>
+            </div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>
+              {isPending
+                ? (en ? 'awaiting next open' : '다음 시가 체결 예정')
+                : <>{money(t.entry_price, isUS)} <span style={{ opacity: 0.6 }}>→</span> <b style={{ color: T.text }}>{money(ref, isUS)}</b> {isOpen ? (en ? 'now' : '현재') : (en ? 'exit' : '청산')}</>}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 900, color: col, lineHeight: 1.1 }}>{pnl == null ? '—' : `${pnl > 0 ? '+' : ''}${pnl}%`}</div>
+            {pnlWon != null && <div style={{ fontSize: 12.5, fontWeight: 700, color: col }}>{won(pnlWon)}</div>}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 14, marginTop: 10, flexWrap: 'wrap', fontSize: 12, color: T.muted }}>
-          <span>{en ? 'Entry' : '진입가'} <b style={{ color: T.text }}>{money(t.entry_price, isUS)}</b></span>
-          {t.stop_price != null && <span>{en ? 'Stop' : '손절'} <b style={{ color: T.red }}>{money(t.stop_price, isUS)}</b></span>}
-          {t.target_price != null && <span>{en ? 'Target' : '목표'} <b style={{ color: T.green }}>{money(t.target_price, isUS)}</b></span>}
-          {t.exit_price != null && <span>{en ? 'Exit' : '청산가'} <b style={{ color: T.text }}>{money(t.exit_price, isUS)}</b></span>}
-          {t.exit_kind && <span style={{ color: T.amber }}>{KIND[t.exit_kind] ?? t.exit_kind}</span>}
-          {t.holding_days != null && <span>{t.holding_days}{en ? 'd held' : '거래일 보유'}</span>}
-          {t.risk_pct != null && <span>{en ? 'risk' : '위험'} {t.risk_pct}%</span>}
+        {/* 진행 바 — 손절 ↔ 목표 사이 지금 위치가 한눈에 */}
+        {frac != null && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ position: 'relative', height: 6, borderRadius: 4, background: `linear-gradient(90deg, ${T.red}55, ${T.muted}44, ${T.green}55)` }}>
+              <div style={{ position: 'absolute', top: -3, left: `calc(${(frac * 100).toFixed(1)}% - 6px)`, width: 12, height: 12, borderRadius: '50%', background: col, border: '2px solid #0b1020' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: T.muted, marginTop: 4 }}>
+              <span style={{ color: T.red }}>{en ? 'Stop' : '손절'} {money(stop, isUS)}</span>
+              <span style={{ color: T.green }}>{en ? 'Target' : '목표'} {money(tgt, isUS)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* 한 줄 '왜' + 보조 지표(최소) */}
+        <div style={{ marginTop: 11, fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
+          {!isPending && t.exit_reason
+            ? <><b style={{ color: badge.c }}>{en ? 'Why' : '왜'}:</b> {oneLineReason(t.exit_reason)}</>
+            : t.entry_reason && <><b style={{ color: T.teal }}>{en ? 'Why' : '왜'}:</b> {oneLineReason(t.entry_reason)}</>}
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', fontSize: 11, color: T.muted }}>
+          {t.entry_score != null && <span>{en ? 'entry' : '진입'} {t.entry_score}{en ? '' : '점'}</span>}
+          {t.weight_pct != null && <span>{en ? 'weight' : '비중'} {t.weight_pct}%</span>}
           {t.r_multiple != null && <span style={{ color: Number(t.r_multiple) > 0 ? T.green : T.red, fontWeight: 700 }}>{Number(t.r_multiple) > 0 ? '+' : ''}{t.r_multiple}R</span>}
-          {t.mae_pct != null && <span>MAE {t.mae_pct}%</span>}
-          {t.mfe_pct != null && <span>MFE +{t.mfe_pct}%</span>}
+          {t.holding_days != null && <span>{t.holding_days}{en ? 'd' : '일'}</span>}
+          <span style={{ marginLeft: 'auto' }}>{t.entry_date}{t.exit_date ? ` → ${t.exit_date}` : ''}</span>
         </div>
-
-        {t.entry_reason && (
-          <div style={{ marginTop: 10, padding: 10, borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.cardBr}` }}>
-            <div style={{ fontSize: 11, color: T.teal, fontWeight: 800, marginBottom: 4 }}>{en ? 'WHY IT ENTERED' : '진입 근거'}</div>
-            <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.7 }}>{t.entry_reason}</div>
-          </div>
-        )}
-        {t.exit_reason && (
-          <div style={{ marginTop: 8, padding: 10, borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.cardBr}` }}>
-            <div style={{ fontSize: 11, color: T.amber, fontWeight: 800, marginBottom: 4 }}>{en ? 'WHY IT EXITED' : '청산 근거'}</div>
-            <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.7 }}>{t.exit_reason}</div>
-          </div>
-        )}
 
         <JournalNote tradeId={t.id} symbol={t.symbol} lang={lang} />
       </div>
@@ -124,9 +170,9 @@ export default async function Journal() {
   return (
     <div style={{ minHeight: '100vh', background: bgGradient, color: T.text }}>
       <header style={{ borderBottom: `1px solid ${T.cardBr}`, position: 'sticky', top: 0, backdropFilter: 'blur(12px)', background: 'rgba(8,12,24,0.85)', zIndex: 20 }}>
-        <div style={{ maxWidth: 1360, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text }}>🧭 {en ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{en ? 'Stocks' : '주식'}</span></Link>
-          <nav style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
+        <div className="topbar" style={{ maxWidth: 1360, margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Link href="/" style={{ fontWeight: 800, fontSize: 18, color: T.text, whiteSpace: 'nowrap' }}>🧭 {en ? 'Investment Compass' : '투자나침반'} <span style={{ color: T.teal }}>{en ? 'Stocks' : '주식'}</span></Link>
+          <nav className="topnav" style={{ display: 'flex', gap: 14, fontSize: 14, alignItems: 'center' }}>
             <Link href="/dashboard" style={{ color: T.muted }}>{en ? 'Dashboard' : '대시보드'}</Link>
             <Link href="/journal" style={{ color: T.teal, fontWeight: 700 }}>{en ? 'Validation' : '모의매매 검증'}</Link>
             <Link href="/plan" style={{ color: T.muted }}>{en ? 'My Trades' : '내 매매'}</Link>
@@ -149,8 +195,32 @@ export default async function Journal() {
           </p>
         </div>
 
-        {/* 포트폴리오 구성 — 지금 내 포트가 어떻게 짜여 있나(핵심) */}
-        <div style={{ marginTop: 14 }}>
+        {/* ① 히어로 — 내 검증 성적 한눈에(로빈후드式 큰 숫자 하나 + 색) */}
+        <div style={{ ...cardStyle, borderRadius: 16, padding: '20px 18px', marginTop: 14, borderTop: `3px solid ${totalWon >= 0 ? T.green : T.red}` }}>
+          <div style={{ fontSize: 12, color: T.muted }}>{en ? `My validation P/L · seed ${SEED.toLocaleString()}` : `내 모의 검증 성적 · 시드 ${SEED.toLocaleString('ko-KR')}원`}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 32, fontWeight: 900, color: totalWon >= 0 ? T.green : T.red, lineHeight: 1 }}>{won(totalWon)}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: totalWon >= 0 ? T.green : T.red }}>{totalPct >= 0 ? '+' : ''}{totalPct}%</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: T.muted, flexWrap: 'wrap' }}>
+            <span>{en ? 'Unrealized' : '평가손익(보유)'} <b style={{ color: unrealWon >= 0 ? T.green : T.red }}>{won(unrealWon)}</b></span>
+            <span>{en ? 'Realized' : '실현손익(종료)'} <b style={{ color: realizedWon >= 0 ? T.green : T.red }}>{won(realizedWon)}</b></span>
+            <span>{en ? 'Invested' : '투입'} <b style={{ color: T.text }}>{investedPct.toFixed(0)}%</b> · {en ? 'cash' : '현금'} {(100 - investedPct).toFixed(0)}%</span>
+            <span>{en ? 'Holding' : '보유'} <b style={{ color: T.text }}>{held.length}</b></span>
+          </div>
+          <div style={{ fontSize: 10.5, color: T.muted, marginTop: 8 }}>{en ? 'Simulation · not actual results' : '모의 시뮬레이션 · 실제 매매 결과 아님'}</div>
+        </div>
+
+        {/* ② 보유·대기 포지션 — 히어로 바로 아래(한눈에 왜 수익/손실인지) */}
+        {open.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 16, fontWeight: 800, marginTop: 22 }}>{en ? 'Open & pending' : '보유 · 대기'}</h2>
+            <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
+          </>
+        )}
+
+        {/* 포트폴리오 구성 — 지금 내 포트가 어떻게 짜여 있나 */}
+        <div style={{ marginTop: 22 }}>
           <PortfolioComposition positions={composition} cashPct={100 - investedPct} lang={lang} />
         </div>
 
@@ -183,13 +253,6 @@ export default async function Journal() {
             </p>
           )}
         </div>
-
-        {open.length > 0 && (
-          <>
-            <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{en ? 'Open & pending' : '보유 · 대기'}</h2>
-            <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{open.map(t => <Card key={t.id} t={t} />)}</div>
-          </>
-        )}
 
         <h2 style={{ fontSize: 17, fontWeight: 800, marginTop: 26 }}>{en ? 'Closed' : '종료된 기록'}</h2>
         {closed.length === 0 ? (
