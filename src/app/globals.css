@@ -18,6 +18,8 @@ button { font-family: inherit; }
 .chat-rail { width: 340px; flex-shrink: 0; position: sticky; top: 84px; height: calc(100vh - 104px); align-self: flex-start; }
 @media (max-width: 1080px) {
   .shell { flex-direction: column; }
+  /* align-items:flex-start 때문에 컬럼 전환 시 shell-main이 내용폭(>뷰포트)으로 커져 잘렸다 → 컨테이너폭에 고정 */
+  .shell-main { width: 100%; }
   .chat-rail { width: 100%; position: static; height: 520px; }
 }
 
