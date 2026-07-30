@@ -13,6 +13,7 @@ const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lpdhtagnbqwjag
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SEC_UA = { 'User-Agent': 'navcp-stock research contact@navcp.xyz', 'Accept-Encoding': 'gzip, deflate' }
 const TARGET = Number(process.env.US_TARGET || 100)
+const LEV_TARGET = Number(process.env.US_LEV_TARGET || 15)   // 레버리지/인버스 별도 쿼터(일반주를 밀어내지 않게)
 // 품질 하한: 동전주·초소형주는 하루 수백% 움직여 TOP과 업종 평균을 통째로 왜곡한다.
 const MIN_PRICE = Number(process.env.US_MIN_PRICE || 5)          // $5 미만 제외
 const MIN_CAP = Number(process.env.US_MIN_CAP || 1_000_000_000)  // 시총 $1B 미만 제외
@@ -361,23 +362,27 @@ async function fetchUniverse() {
     const st = await tossGet('/api/v1/stocks?symbols=' + batch.join(','))
     const list = Array.isArray(st?.result) ? st.result : (st?.result?.stocks || [])
     for (const x of list) {
-      // 정화: 보통주 ETF/ETN·레버리지·상폐 제외
-      if (x.securityType !== 'STOCK') continue
       if (x.status !== 'ACTIVE' || x.delistDate) continue
-      if (x.isCommonShare === false) continue
-      if (x.leverageFactor != null) continue
+      const lev = x.leverageFactor != null ? Number(x.leverageFactor) : null
+      // 편입 대상: ①보통주  ②레버리지·인버스 상품(±2x/±3x 등). 1배 일반 ETF/ETN은 제외.
+      const isStock = x.securityType === 'STOCK' && x.isCommonShare !== false && lev == null
+      const isLev = lev != null && Math.abs(lev) !== 1
+      if (!isStock && !isLev) continue
       const shares = Number(x.sharesOutstanding)
       const pr = ranks.find(r => r.symbol === x.symbol)
       const price = Number(pr?.price?.lastPrice ?? NaN)   // 스펙 실측: RankingPrice.lastPrice
       if (!(shares > 0) || !(price > 0)) continue
       if (price < MIN_PRICE) continue                     // 동전주 배제
-      if (shares * price < MIN_CAP) continue              // 초소형주 배제
-      out.push({ symbol: x.symbol, name: x.englishName || x.name, market: x.market, shares, price, cap: shares * price })
+      if (shares * price < MIN_CAP) continue              // 초소형(AUM 소형 ETF) 배제
+      out.push({ symbol: x.symbol, name: x.englishName || x.name, market: x.market, shares, price, cap: shares * price, leverage: isLev ? lev : null })
     }
     await sleep(300)
   }
-  out.sort((a, b) => b.cap - a.cap)
-  return out.slice(0, TARGET)
+  // 일반주(cap 상위 TARGET) + 레버리지(거래 상위 LEV_TARGET)를 별도 쿼터로 병합
+  const stocks = out.filter(o => o.leverage == null).sort((a, b) => b.cap - a.cap).slice(0, TARGET)
+  const levs = out.filter(o => o.leverage != null).sort((a, b) => b.cap - a.cap).slice(0, LEV_TARGET)
+  console.log(`[US] 일반주 ${stocks.length} + 레버리지 ${levs.length} (${levs.map(l => l.symbol).join(',')})`)
+  return [...stocks, ...levs]
 }
 
 async function candles(sym) {
@@ -466,6 +471,7 @@ const gradeOf = t => t >= 78 ? '강한우호' : t >= 66 ? '우호' : t >= 56 ? '
       Object.assign(scores, extras(rows, BENCH))   // 보조지표(점수 미합산·참고용)
       // 시총: $ → 억원 환산(KR과 단위 통일, 환율 1350 근사)
       scores.mcap = s.cap ? Math.round(s.cap * 1350 / 1e8) : null
+      if (s.leverage != null) scores.leverage = s.leverage   // 레버리지 배수(UI 배지·리스크 사이징 참고용)
       await upsert({ symbol: s.symbol, name: s.name, market: s.market, country: 'US', scores, coverage, cached_at: now })
       history.push({ d: today, symbol: s.symbol, name: s.name, total: scores.total, grade: gradeOf(scores.total), coverage, price, country: 'US', snapshot_at: now })
       console.log(`  ${String(s.symbol).padEnd(6)} total ${String(scores.total).padStart(3)} · cov ${Math.round(coverage * 100)}% · PER ${scores.per} · 공매도 ${scores.short_ratio}% · 8-K(${disc?.pos ?? '-'}/${disc?.neg ?? '-'})`)
