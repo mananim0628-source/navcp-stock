@@ -141,7 +141,8 @@ export default function TradeCalendar({ trades, openPos = [], lang = 'ko' }: { t
       </div>
 
       {/* 달력 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr) 62px', gap: 4, marginTop: 12 }}>
+      <div className="hscroll" style={{ marginTop: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(40px,1fr)) 56px', gap: 4, minWidth: 430 }}>
         {DOW.map((d, i) => (
           <div key={i} style={{ fontSize: 10.5, color: i === 0 ? T.red : i === 6 ? T.blue : T.muted, textAlign: 'center', padding: '2px 0' }}>{d}</div>
         ))}
@@ -180,6 +181,7 @@ export default function TradeCalendar({ trades, openPos = [], lang = 'ko' }: { t
             </>
           )
         })}
+      </div>
       </div>
 
       <p style={{ fontSize: 10.5, color: T.muted, marginTop: 12, lineHeight: 1.7 }}>

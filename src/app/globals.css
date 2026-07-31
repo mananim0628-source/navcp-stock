@@ -59,3 +59,8 @@ a { text-decoration: none; }
 .rail-auto::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 .rail-auto::-webkit-scrollbar-track { background: transparent; }
 .rail-auto { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+/* 가로 스크롤 컨테이너(넓은 표·달력) — 잘림 대신 스와이프, 스크롤바 얇게 */
+.hscroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+.hscroll::-webkit-scrollbar { height: 6px; }
+.hscroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+.hscroll::-webkit-scrollbar-track { background: transparent; }
